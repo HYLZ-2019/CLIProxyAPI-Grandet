@@ -105,17 +105,252 @@ func (h *Handler) deleteFromStringList(c *gin.Context, target *[]string, after f
 }
 
 // api-keys
-func (h *Handler) GetAPIKeys(c *gin.Context) { c.JSON(200, gin.H{"api-keys": h.cfg.APIKeys}) }
+func (h *Handler) GetAPIKeys(c *gin.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cfg.APIKeys, h.cfg.APIKeysNextID = config.NormalizeClientAPIKeysWithHint(h.cfg.APIKeys, h.cfg.APIKeysNextID)
+	c.JSON(200, gin.H{"api-keys": h.cfg.APIKeys})
+}
+
 func (h *Handler) PutAPIKeys(c *gin.Context) {
-	h.putStringList(c, func(v []string) {
-		h.cfg.APIKeys = append([]string(nil), v...)
-	}, nil)
+	data, err := c.GetRawData()
+	if err != nil {
+		c.JSON(400, gin.H{"error": "failed to read body"})
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	entries, err := parseClientAPIKeyList(data)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	h.cfg.APIKeys = preserveClientAPIKeyIDs(entries, h.cfg.APIKeys)
+	h.cfg.APIKeys, h.cfg.APIKeysNextID = config.NormalizeClientAPIKeysWithHint(h.cfg.APIKeys, h.cfg.APIKeysNextID)
+	h.persistLocked(c)
 }
+
 func (h *Handler) PatchAPIKeys(c *gin.Context) {
-	h.patchStringList(c, &h.cfg.APIKeys, func() {})
+	var body struct {
+		ID    *string         `json:"id"`
+		Old   *string         `json:"old"`
+		New   *string         `json:"new"`
+		Index *int            `json:"index"`
+		Value json.RawMessage `json:"value"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(400, gin.H{"error": "invalid body"})
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cfg.APIKeys, h.cfg.APIKeysNextID = config.NormalizeClientAPIKeysWithHint(h.cfg.APIKeys, h.cfg.APIKeysNextID)
+
+	targetIndex := -1
+	if body.ID != nil {
+		targetIndex = config.FindClientAPIKeyByID(h.cfg.APIKeys, *body.ID)
+	}
+	if targetIndex == -1 && body.Index != nil && *body.Index >= 0 && *body.Index < len(h.cfg.APIKeys) {
+		targetIndex = *body.Index
+	}
+	if targetIndex == -1 && body.Old != nil {
+		idx, count := config.FindClientAPIKeyByValue(h.cfg.APIKeys, *body.Old)
+		if count > 1 {
+			c.JSON(400, gin.H{"error": "multiple items match old value; id is required"})
+			return
+		}
+		targetIndex = idx
+	}
+
+	patch, hasPatch, err := parseClientAPIKeyPatch(body.Value)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if !hasPatch && body.New != nil {
+		value := strings.TrimSpace(*body.New)
+		if value == "" {
+			c.JSON(400, gin.H{"error": "api-key cannot be empty"})
+			return
+		}
+		patch.APIKey = &value
+		hasPatch = true
+	}
+	if !hasPatch {
+		c.JSON(400, gin.H{"error": "missing fields"})
+		return
+	}
+
+	if targetIndex == -1 {
+		if body.ID != nil || body.Index != nil {
+			c.JSON(404, gin.H{"error": "item not found"})
+			return
+		}
+		entry := config.ClientAPIKey{}
+		if patch.ID != nil {
+			entry.ID = strings.TrimSpace(*patch.ID)
+		}
+		if patch.Name != nil {
+			entry.Name = strings.TrimSpace(*patch.Name)
+		}
+		if patch.APIKey == nil || strings.TrimSpace(*patch.APIKey) == "" {
+			c.JSON(400, gin.H{"error": "api-key cannot be empty"})
+			return
+		}
+		entry.APIKey = strings.TrimSpace(*patch.APIKey)
+		h.cfg.APIKeys = append(h.cfg.APIKeys, entry)
+		h.cfg.APIKeys, h.cfg.APIKeysNextID = config.NormalizeClientAPIKeysWithHint(h.cfg.APIKeys, h.cfg.APIKeysNextID)
+		h.persistLocked(c)
+		return
+	}
+
+	entry := h.cfg.APIKeys[targetIndex]
+	if patch.Name != nil {
+		entry.Name = strings.TrimSpace(*patch.Name)
+	}
+	if patch.APIKey != nil {
+		apiKey := strings.TrimSpace(*patch.APIKey)
+		if apiKey == "" {
+			c.JSON(400, gin.H{"error": "api-key cannot be empty"})
+			return
+		}
+		entry.APIKey = apiKey
+	}
+	h.cfg.APIKeys[targetIndex] = entry
+	h.cfg.APIKeys, h.cfg.APIKeysNextID = config.NormalizeClientAPIKeysWithHint(h.cfg.APIKeys, h.cfg.APIKeysNextID)
+	h.persistLocked(c)
 }
+
 func (h *Handler) DeleteAPIKeys(c *gin.Context) {
-	h.deleteFromStringList(c, &h.cfg.APIKeys, func() {})
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cfg.APIKeys, h.cfg.APIKeysNextID = config.NormalizeClientAPIKeysWithHint(h.cfg.APIKeys, h.cfg.APIKeysNextID)
+
+	if id := strings.TrimSpace(c.Query("id")); id != "" {
+		idx := config.FindClientAPIKeyByID(h.cfg.APIKeys, id)
+		if idx == -1 {
+			c.JSON(404, gin.H{"error": "item not found"})
+			return
+		}
+		h.cfg.APIKeys = append(h.cfg.APIKeys[:idx], h.cfg.APIKeys[idx+1:]...)
+		h.persistLocked(c)
+		return
+	}
+	if idxStr := c.Query("index"); idxStr != "" {
+		var idx int
+		_, err := fmt.Sscanf(idxStr, "%d", &idx)
+		if err == nil && idx >= 0 && idx < len(h.cfg.APIKeys) {
+			h.cfg.APIKeys = append(h.cfg.APIKeys[:idx], h.cfg.APIKeys[idx+1:]...)
+			h.persistLocked(c)
+			return
+		}
+		c.JSON(404, gin.H{"error": "item not found"})
+		return
+	}
+	if val := strings.TrimSpace(c.Query("value")); val != "" {
+		idx, count := config.FindClientAPIKeyByValue(h.cfg.APIKeys, val)
+		switch count {
+		case 0:
+			c.JSON(404, gin.H{"error": "item not found"})
+		case 1:
+			h.cfg.APIKeys = append(h.cfg.APIKeys[:idx], h.cfg.APIKeys[idx+1:]...)
+			h.persistLocked(c)
+		default:
+			c.JSON(400, gin.H{"error": "multiple items match value; id is required"})
+		}
+		return
+	}
+	c.JSON(400, gin.H{"error": "missing id, index, or value"})
+}
+
+type clientAPIKeyPatch struct {
+	ID     *string `json:"id"`
+	Name   *string `json:"name"`
+	APIKey *string `json:"api-key"`
+	Key    *string `json:"key"`
+}
+
+func parseClientAPIKeyPatch(raw json.RawMessage) (clientAPIKeyPatch, bool, error) {
+	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "null" {
+		return clientAPIKeyPatch{}, false, nil
+	}
+	var secret string
+	if err := json.Unmarshal(raw, &secret); err == nil {
+		secret = strings.TrimSpace(secret)
+		if secret == "" {
+			return clientAPIKeyPatch{}, false, fmt.Errorf("api-key cannot be empty")
+		}
+		return clientAPIKeyPatch{APIKey: &secret}, true, nil
+	}
+	var patch clientAPIKeyPatch
+	if err := json.Unmarshal(raw, &patch); err != nil {
+		return clientAPIKeyPatch{}, false, fmt.Errorf("invalid value")
+	}
+	if patch.APIKey == nil && patch.Key != nil {
+		patch.APIKey = patch.Key
+	}
+	return patch, true, nil
+}
+
+func parseClientAPIKeyList(data []byte) ([]config.ClientAPIKey, error) {
+	var entries []config.ClientAPIKey
+	if err := json.Unmarshal(data, &entries); err == nil {
+		return entries, nil
+	}
+	var obj struct {
+		Items []config.ClientAPIKey `json:"items"`
+	}
+	if err := json.Unmarshal(data, &obj); err == nil {
+		return obj.Items, nil
+	}
+	return nil, fmt.Errorf("invalid body")
+}
+
+func preserveClientAPIKeyIDs(entries, existing []config.ClientAPIKey) []config.ClientAPIKey {
+	if len(entries) == 0 {
+		return nil
+	}
+	existing = config.NormalizeClientAPIKeys(existing)
+	byValue := make(map[string]config.ClientAPIKey, len(existing))
+	for _, entry := range existing {
+		key := strings.TrimSpace(entry.APIKey)
+		if key == "" {
+			continue
+		}
+		if _, exists := byValue[key]; !exists {
+			byValue[key] = entry
+		}
+	}
+	out := make([]config.ClientAPIKey, 0, len(entries))
+	usedIDs := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		entry.ID = strings.TrimSpace(entry.ID)
+		entry.Name = strings.TrimSpace(entry.Name)
+		entry.APIKey = strings.TrimSpace(entry.APIKey)
+		if entry.APIKey == "" {
+			continue
+		}
+		if entry.ID == "" {
+			if previous, ok := byValue[entry.APIKey]; ok {
+				entry.ID = strings.TrimSpace(previous.ID)
+				if entry.Name == "" {
+					entry.Name = strings.TrimSpace(previous.Name)
+				}
+			}
+		}
+		if entry.ID != "" {
+			if _, exists := usedIDs[entry.ID]; exists {
+				entry.ID = ""
+			} else {
+				usedIDs[entry.ID] = struct{}{}
+			}
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 // gemini-api-key: []GeminiKey
