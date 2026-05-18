@@ -45,6 +45,7 @@ type Handler struct {
 	allowRemoteOverride bool
 	envSecret           string
 	logDir              string
+	analyticsDBPath     string
 	postAuthHook        coreauth.PostAuthHook
 }
 
@@ -140,6 +141,12 @@ func (h *Handler) SetLogDirectory(dir string) {
 // SetPostAuthHook registers a hook to be called after auth record creation but before persistence.
 func (h *Handler) SetPostAuthHook(hook coreauth.PostAuthHook) {
 	h.postAuthHook = hook
+}
+
+// SetAnalyticsDBPath stores the analytics database path so the analytics config endpoints
+// can reinitialize the store when the retention setting changes at runtime.
+func (h *Handler) SetAnalyticsDBPath(path string) {
+	h.analyticsDBPath = path
 }
 
 // Middleware enforces access control for management endpoints.

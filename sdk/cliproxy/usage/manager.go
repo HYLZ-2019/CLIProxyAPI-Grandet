@@ -30,6 +30,7 @@ type Record struct {
 type Failure struct {
 	StatusCode int
 	Body       string
+	ResetAt    int64
 }
 
 // Detail holds the token usage breakdown.

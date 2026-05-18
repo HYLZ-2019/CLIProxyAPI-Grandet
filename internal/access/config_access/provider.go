@@ -16,7 +16,7 @@ func Register(cfg *sdkconfig.SDKConfig) {
 		return
 	}
 
-	keys := normalizeKeys(cfg.APIKeys)
+	keys := normalizeKeyEntries(cfg.APIKeys)
 	if len(keys) == 0 {
 		sdkaccess.UnregisterProvider(sdkaccess.AccessProviderTypeConfigAPIKey)
 		return
@@ -28,19 +28,25 @@ func Register(cfg *sdkconfig.SDKConfig) {
 	)
 }
 
-type provider struct {
-	name string
-	keys map[string]struct{}
+type keyEntry struct {
+	ID     string
+	Name   string
+	APIKey string
 }
 
-func newProvider(name string, keys []string) *provider {
+type provider struct {
+	name string
+	keys map[string]keyEntry
+}
+
+func newProvider(name string, keys []keyEntry) *provider {
 	providerName := strings.TrimSpace(name)
 	if providerName == "" {
 		providerName = sdkaccess.DefaultAccessProviderName
 	}
-	keySet := make(map[string]struct{}, len(keys))
+	keySet := make(map[string]keyEntry, len(keys))
 	for _, key := range keys {
-		keySet[key] = struct{}{}
+		keySet[key.APIKey] = key
 	}
 	return &provider{name: providerName, keys: keySet}
 }
@@ -89,15 +95,24 @@ func (p *provider) Authenticate(_ context.Context, r *http.Request) (*sdkaccess.
 		if candidate.value == "" {
 			continue
 		}
-		if _, ok := p.keys[candidate.value]; ok {
-			return &sdkaccess.Result{
-				Provider:  p.Identifier(),
-				Principal: candidate.value,
-				Metadata: map[string]string{
-					"source": candidate.source,
-				},
-			}, nil
+		entry, ok := p.keys[candidate.value]
+		if !ok {
+			continue
 		}
+		metadata := map[string]string{
+			"source": candidate.source,
+		}
+		if entry.ID != "" {
+			metadata["api_key_id"] = entry.ID
+		}
+		if entry.Name != "" {
+			metadata["api_key_name"] = entry.Name
+		}
+		return &sdkaccess.Result{
+			Provider:  p.Identifier(),
+			Principal: candidate.value,
+			Metadata:  metadata,
+		}, nil
 	}
 
 	return nil, sdkaccess.NewInvalidCredentialError()
@@ -117,14 +132,15 @@ func extractBearerToken(header string) string {
 	return strings.TrimSpace(parts[1])
 }
 
-func normalizeKeys(keys []string) []string {
+func normalizeKeyEntries(keys []sdkconfig.ClientAPIKey) []keyEntry {
 	if len(keys) == 0 {
 		return nil
 	}
-	normalized := make([]string, 0, len(keys))
-	seen := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
-		trimmedKey := strings.TrimSpace(key)
+	normalized := sdkconfig.NormalizeClientAPIKeys(keys)
+	entries := make([]keyEntry, 0, len(normalized))
+	seen := make(map[string]struct{}, len(normalized))
+	for _, key := range normalized {
+		trimmedKey := strings.TrimSpace(key.APIKey)
 		if trimmedKey == "" {
 			continue
 		}
@@ -132,10 +148,14 @@ func normalizeKeys(keys []string) []string {
 			continue
 		}
 		seen[trimmedKey] = struct{}{}
-		normalized = append(normalized, trimmedKey)
+		entries = append(entries, keyEntry{
+			ID:     strings.TrimSpace(key.ID),
+			Name:   strings.TrimSpace(key.Name),
+			APIKey: trimmedKey,
+		})
 	}
-	if len(normalized) == 0 {
+	if len(entries) == 0 {
 		return nil
 	}
-	return normalized
+	return entries
 }

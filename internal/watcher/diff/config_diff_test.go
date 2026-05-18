@@ -190,7 +190,7 @@ func TestBuildConfigChangeDetails_NilSafe(t *testing.T) {
 func TestBuildConfigChangeDetails_SecretsAndCounts(t *testing.T) {
 	oldCfg := &config.Config{
 		SDKConfig: sdkconfig.SDKConfig{
-			APIKeys: []string{"a"},
+			APIKeys: []sdkconfig.ClientAPIKey{{APIKey: "a"}},
 		},
 		AmpCode: config.AmpCode{
 			UpstreamAPIKey: "",
@@ -201,7 +201,7 @@ func TestBuildConfigChangeDetails_SecretsAndCounts(t *testing.T) {
 	}
 	newCfg := &config.Config{
 		SDKConfig: sdkconfig.SDKConfig{
-			APIKeys: []string{"a", "b", "c"},
+			APIKeys: []sdkconfig.ClientAPIKey{{APIKey: "a"}, {APIKey: "b"}, {APIKey: "c"}},
 		},
 		AmpCode: config.AmpCode{
 			UpstreamAPIKey: "new-key",
@@ -237,7 +237,7 @@ func TestBuildConfigChangeDetails_FlagsAndKeys(t *testing.T) {
 		SDKConfig: sdkconfig.SDKConfig{
 			RequestLog:                 false,
 			ProxyURL:                   "http://old-proxy",
-			APIKeys:                    []string{"key-1"},
+			APIKeys:                    []sdkconfig.ClientAPIKey{{APIKey: "key-1"}},
 			ForceModelPrefix:           false,
 			NonStreamKeepAliveInterval: 0,
 		},
@@ -276,7 +276,7 @@ func TestBuildConfigChangeDetails_FlagsAndKeys(t *testing.T) {
 		SDKConfig: sdkconfig.SDKConfig{
 			RequestLog:                 true,
 			ProxyURL:                   "http://new-proxy",
-			APIKeys:                    []string{" key-1 ", "key-2"},
+			APIKeys:                    []sdkconfig.ClientAPIKey{{APIKey: " key-1 "}, {APIKey: "key-2"}},
 			ForceModelPrefix:           true,
 			NonStreamKeepAliveInterval: 5,
 			DisableImageGeneration:     config.DisableImageGenerationAll,
@@ -353,7 +353,7 @@ func TestBuildConfigChangeDetails_AllBranches(t *testing.T) {
 		SDKConfig: sdkconfig.SDKConfig{
 			RequestLog: false,
 			ProxyURL:   "http://old-proxy",
-			APIKeys:    []string{" keyA "},
+			APIKeys:    []sdkconfig.ClientAPIKey{{APIKey: " keyA "}},
 		},
 		OAuthExcludedModels: map[string][]string{"p1": {"a"}},
 		OpenAICompatibility: []config.OpenAICompatibility{
@@ -407,7 +407,7 @@ func TestBuildConfigChangeDetails_AllBranches(t *testing.T) {
 		SDKConfig: sdkconfig.SDKConfig{
 			RequestLog:             true,
 			ProxyURL:               "http://new-proxy",
-			APIKeys:                []string{"keyB"},
+			APIKeys:                []sdkconfig.ClientAPIKey{{APIKey: "keyB"}},
 			DisableImageGeneration: config.DisableImageGenerationAll,
 		},
 		OAuthExcludedModels: map[string][]string{"p1": {"b", "c"}, "p2": {"d"}},
@@ -443,7 +443,7 @@ func TestBuildConfigChangeDetails_AllBranches(t *testing.T) {
 	expectContains(t, changes, "quota-exceeded.switch-project: false -> true")
 	expectContains(t, changes, "quota-exceeded.switch-preview-model: false -> true")
 	expectContains(t, changes, "quota-exceeded.antigravity-credits: false -> true")
-	expectContains(t, changes, "api-keys: values updated (count unchanged, redacted)")
+	expectContains(t, changes, "api-keys[1].api-key: updated")
 	expectContains(t, changes, "gemini[0].base-url: http://g-old -> http://g-new")
 	expectContains(t, changes, "gemini[0].proxy-url: http://gp-old -> http://gp-new")
 	expectContains(t, changes, "gemini[0].api-key: updated")
@@ -542,11 +542,4 @@ func TestBuildConfigChangeDetails_CountBranches(t *testing.T) {
 	expectContains(t, changes, "claude-api-key count: 0 -> 1")
 	expectContains(t, changes, "codex-api-key count: 0 -> 1")
 	expectContains(t, changes, "vertex-api-key count: 0 -> 1")
-}
-
-func TestTrimStrings(t *testing.T) {
-	out := trimStrings([]string{" a ", "b", "  c"})
-	if len(out) != 3 || out[0] != "a" || out[1] != "b" || out[2] != "c" {
-		t.Fatalf("unexpected trimmed strings: %v", out)
-	}
 }

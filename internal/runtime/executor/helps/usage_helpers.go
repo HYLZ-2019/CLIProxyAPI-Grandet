@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -178,9 +180,67 @@ func failFromErrors(errs ...error) usage.Failure {
 		if errors.As(err, &se) && se != nil {
 			fail.StatusCode = se.StatusCode()
 		}
+		fail.ResetAt = resetAtFromError(err, time.Now())
 		return fail
 	}
 	return usage.Failure{}
+}
+
+func resetAtFromError(err error, now time.Time) int64 {
+	var retryable interface{ RetryAfter() *time.Duration }
+	if errors.As(err, &retryable) && retryable != nil {
+		if retryAfter := retryable.RetryAfter(); retryAfter != nil {
+			return now.Add(*retryAfter).Unix()
+		}
+	}
+	var withHeaders interface{ Headers() http.Header }
+	if errors.As(err, &withHeaders) && withHeaders != nil {
+		if resetAt := resetAtFromHeaders(withHeaders.Headers(), now); resetAt > 0 {
+			return resetAt
+		}
+	}
+	return resetAtFromBody(strings.TrimSpace(err.Error()), now)
+}
+
+func resetAtFromHeaders(headers http.Header, now time.Time) int64 {
+	if headers == nil {
+		return 0
+	}
+	if raw := strings.TrimSpace(headers.Get("Retry-After")); raw != "" {
+		if seconds, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			return now.Add(time.Duration(seconds) * time.Second).Unix()
+		}
+		if when, err := http.ParseTime(raw); err == nil {
+			return when.Unix()
+		}
+	}
+	if raw := strings.TrimSpace(headers.Get("Retry-After-Ms")); raw != "" {
+		if ms, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			return now.Add(time.Duration(ms) * time.Millisecond).Unix()
+		}
+	}
+	return 0
+}
+
+func resetAtFromBody(body string, now time.Time) int64 {
+	if body == "" || !gjson.Valid(body) {
+		return 0
+	}
+	for _, path := range []string{"reset_at", "resetAt", "error.reset_at", "error.resetAt"} {
+		if value := gjson.Get(body, path); value.Exists() {
+			if ts := value.Int(); ts > 0 {
+				return ts
+			}
+		}
+	}
+	for _, path := range []string{"retry_after", "retryAfter", "error.retry_after", "error.retryAfter"} {
+		if value := gjson.Get(body, path); value.Exists() {
+			if seconds := value.Int(); seconds > 0 {
+				return now.Add(time.Duration(seconds) * time.Second).Unix()
+			}
+		}
+	}
+	return 0
 }
 
 func (r *UsageReporter) latency() time.Duration {

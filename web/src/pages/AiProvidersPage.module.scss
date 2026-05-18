@@ -28,7 +28,7 @@ $openai-toolbar-control-height: 36px;
 .content {
   display: flex;
   flex-direction: column;
-  gap: $spacing-xl;
+  gap: $spacing-md;
   padding-bottom: calc(
     var(--provider-nav-height, 60px) + 12px + env(safe-area-inset-bottom) + #{$spacing-md}
   );
@@ -494,7 +494,7 @@ $openai-toolbar-control-height: 36px;
   max-width: 100%;
   background: var(--accent-tertiary, #f3f4f6);
   border: 1px solid var(--border-primary);
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 4px 10px;
   font-size: 12px;
   color: var(--text-secondary);
@@ -541,7 +541,7 @@ $openai-toolbar-control-height: 36px;
   background: var(--bg-quinary, #f8f9fa);
   color: var(--text-secondary);
   border: 1px solid var(--border-secondary);
-  border-radius: 14px;
+  border-radius: 9px;
   padding: 4px 10px;
   font-size: 12px;
   transition: all 0.15s ease;

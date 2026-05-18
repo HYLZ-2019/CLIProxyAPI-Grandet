@@ -45,6 +45,13 @@ export type PayloadFilterRule = {
   params: string[];
 };
 
+export type ClientAPIKeyEntry = {
+  id?: string;
+  name?: string;
+  apiKey: string;
+  clientId: string;
+};
+
 export interface StreamingConfig {
   keepaliveSeconds: string;
   bootstrapRetries: string;
@@ -62,7 +69,7 @@ export type VisualConfigValues = {
   rmDisableControlPanel: boolean;
   rmPanelRepo: string;
   authDir: string;
-  apiKeysText: string;
+  apiKeys: ClientAPIKeyEntry[];
   debug: boolean;
   commercialMode: boolean;
   loggingToFile: boolean;
@@ -85,6 +92,8 @@ export type VisualConfigValues = {
   payloadOverrideRawRules: PayloadRule[];
   payloadFilterRules: PayloadFilterRule[];
   streaming: StreamingConfig;
+  analyticsEnabled: boolean;
+  analyticsRetentionDays: string;
 };
 
 export const makeClientId = () => {
@@ -103,7 +112,7 @@ export const DEFAULT_VISUAL_VALUES: VisualConfigValues = {
   rmDisableControlPanel: false,
   rmPanelRepo: '',
   authDir: '',
-  apiKeysText: '',
+  apiKeys: [],
   debug: false,
   commercialMode: false,
   loggingToFile: false,
@@ -130,4 +139,6 @@ export const DEFAULT_VISUAL_VALUES: VisualConfigValues = {
     bootstrapRetries: '',
     nonstreamKeepaliveInterval: '',
   },
+  analyticsEnabled: false,
+  analyticsRetentionDays: '',
 };

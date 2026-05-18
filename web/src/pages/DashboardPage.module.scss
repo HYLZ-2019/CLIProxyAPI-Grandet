@@ -6,7 +6,7 @@
 .dashboard {
   display: flex;
   flex-direction: column;
-  gap: $spacing-xl;
+  gap: $spacing-md;
   max-width: 1000px;
   margin: 0 auto;
   position: relative;
@@ -71,8 +71,8 @@
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: $spacing-lg;
-  padding: $spacing-2xl $spacing-xl;
+  gap: $spacing-md;
+  padding: $spacing-md $spacing-lg;
   border-radius: $radius-lg;
   --glass-blur: 12px;
   background: linear-gradient(
@@ -89,7 +89,7 @@
   @media (max-width: $breakpoint-mobile) {
     flex-direction: column;
     align-items: flex-start;
-    padding: $spacing-xl $spacing-lg;
+    padding: $spacing-md;
   }
 }
 
@@ -299,7 +299,7 @@
   display: flex;
   flex-direction: column;
   gap: $spacing-md;
-  padding: $spacing-lg;
+  padding: $spacing-md;
   background: linear-gradient(
     145deg,
     color-mix(in srgb, var(--bg-primary) 86%, transparent),

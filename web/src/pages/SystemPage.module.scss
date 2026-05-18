@@ -12,7 +12,7 @@
 .content {
   display: flex;
   flex-direction: column;
-  gap: $spacing-xl;
+  gap: $spacing-md;
 }
 
 .aboutCard {
@@ -26,13 +26,13 @@
   justify-content: center;
   width: 100%;
   gap: $spacing-md;
-  padding: $spacing-lg 0 $spacing-xl;
+  padding: $spacing-md 0;
 }
 
 .aboutLogo {
   width: 108px;
   height: 108px;
-  border-radius: 26px;
+  border-radius: 8px;
   object-fit: cover;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
 }
@@ -351,7 +351,7 @@
   .aboutLogo {
     width: 92px;
     height: 92px;
-    border-radius: 22px;
+    border-radius: 8px;
   }
 
   .aboutTitle {

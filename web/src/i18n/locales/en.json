@@ -115,9 +115,91 @@
     "auth_files": "Auth Files",
     "oauth": "OAuth Login",
     "quota_management": "Quota Management",
+    "analytics": "Analytics",
     "config_management": "Config Panel",
+    "api_key_management": "API Key Management",
     "logs": "Logs Viewer",
     "system_info": "Management Center Info"
+  },
+  "api_keys_management": {
+    "eyebrow": "Frequently used config",
+    "title": "API Key Management",
+    "description": "Manage client API keys without opening the full config editor.",
+    "section_description": "Configure the auth directory and the API keys accepted by CLIProxyAPI."
+  },
+  "analytics": {
+    "title": "Analytics",
+    "description": "Per-request usage, hourly aggregates, solved token prices, and provider quota lines from the local SQLite store.",
+    "disconnected": "Connect to the proxy to view analytics.",
+    "not_enabled": "Analytics is not enabled.",
+    "not_enabled_hint": "Open Config Panel → Analytics, turn on the Enable Analytics toggle, and restart the proxy.",
+    "no_data": "No data in the selected range.",
+    "range": {
+      "1h": "1 hour",
+      "24h": "24 hours",
+      "7d": "7 days"
+    },
+    "cards": {
+      "requests": "Requests",
+      "success_rate": "Success rate",
+      "total_tokens": "Total tokens",
+      "errors": "Errors",
+      "quota_events_count": "{{count}} quota events"
+    },
+    "charts": {
+      "trend_title": "Hourly trend",
+      "trend_hint": "Aggregated by hour. Left axis = requests, right axis = tokens.",
+      "by_model_title": "Top models",
+      "by_model_hint": "Request count per model in the selected range (top 10).",
+      "by_client_title": "Top client API keys",
+      "by_client_hint": "Request count per client API key ID (top 10).",
+      "requests_axis": "Requests",
+      "tokens_axis": "Tokens"
+    },
+    "quota_lines": {
+      "title": "Provider quota lines",
+      "hint": "One chart per provider: remaining quota points from quota polling, CLIProxyAPI cumulative weighted usage, optional 429 markers, and expected refresh markers.",
+      "hide_429": "Hide 429 dots",
+      "show_429": "Show 429 dots",
+      "hide_refresh_markers": "Hide refresh dots",
+      "show_refresh_markers": "Show refresh dots",
+      "reset_on_429": "Reset cumulative on 429",
+      "reset_on_refresh": "Reset cumulative on expected refresh",
+      "quota_remaining": "Quota remaining points",
+      "cliproxy_cumulative": "CLIProxyAPI cumulative points",
+      "quota_429": "429 event",
+      "expected_refresh": "Expected refresh",
+      "weekly_capacity": "100% quota at max price",
+      "no_window": "No quota window"
+    },
+    "prices": {
+      "title": "Daily token prices",
+      "hint": "Current-day token prices solved from quota deltas and hourly token usage, in quota points per 1M tokens.",
+      "col_date": "Date",
+      "col_provider": "Provider",
+      "col_model": "Model",
+      "col_token_type": "Token type",
+      "col_price": "Points / 1M",
+      "col_status": "Status",
+      "col_equations": "Equations",
+      "col_residual": "RMS residual",
+      "col_solved_at": "Solved at",
+      "token_type": {
+        "input": "Input",
+        "output": "Output",
+        "cached_input": "Cached input"
+      },
+      "status": {
+        "solved": "Solved",
+        "insufficient_equations": "Insufficient equations",
+        "rank_deficient": "Rank deficient",
+        "low_confidence": "Low confidence",
+        "unknown": "Unknown"
+      }
+    },
+    "errors": {
+      "load_failed": "Failed to load analytics data."
+    }
   },
   "dashboard": {
     "title": "Dashboard",
@@ -1124,6 +1206,14 @@
           "antigravity_credits": "Antigravity Credits Retry",
           "antigravity_credits_desc": "Retry once with enabledCreditTypes=[\"GOOGLE_ONE_AI\"] when Antigravity returns quota_exhausted 429"
         },
+        "analytics": {
+          "title": "Analytics",
+          "description": "Per-request usage logging and quota tracking (stored in a local SQLite database)",
+          "enabled": "Enable Analytics",
+          "enabled_desc": "Log every proxied request's model, token counts, and 429 quota events to a local SQLite file",
+          "retention": "Raw Log Retention (days)",
+          "retention_hint": "Raw per-request logs are deleted after this many days; hourly aggregates are kept indefinitely"
+        },
         "streaming": {
           "title": "Streaming Configuration",
           "description": "Keepalive and bootstrap retry settings",
@@ -1155,12 +1245,17 @@
         "add": "Add API Key",
         "generate": "Generate",
         "empty": "No API keys",
-        "hint": "Each entry represents an API key (consistent with 'API Key Management' page style)",
+        "hint": "Names and stable IDs are saved with the local api-keys configuration.",
         "edit_title": "Edit API Key",
         "add_title": "Add API Key",
+        "id_value": "ID: {{id}}",
+        "id_pending": "ID: pending",
+        "unnamed": "Unnamed API key",
+        "name_label": "Name",
+        "name_placeholder": "Optional display name",
         "input_label": "API Key",
         "input_placeholder": "Paste your API key",
-        "input_hint": "This only modifies the local config file content, it will not sync to the API Key Management interface",
+        "input_hint": "The API key is required; the name is optional and shown in analytics/client key lists.",
         "error_empty": "Please enter an API key",
         "error_invalid": "API key contains invalid characters"
       },

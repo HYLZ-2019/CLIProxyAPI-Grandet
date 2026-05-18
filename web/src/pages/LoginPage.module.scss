@@ -15,7 +15,7 @@
   justify-content: center;
   align-items: center;
   background: #000000;
-  padding: $spacing-2xl;
+  padding: $spacing-md;
   position: relative;
   overflow: hidden;
 
@@ -87,12 +87,12 @@
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  padding: $spacing-2xl;
+  padding: $spacing-md;
   background: var(--bg-secondary);
   position: relative;
 
   @media (max-width: $breakpoint-mobile) {
-    padding: $spacing-lg;
+    padding: $spacing-md;
     min-height: 100vh;
   }
 }
@@ -104,7 +104,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: $spacing-xl;
+  gap: $spacing-md;
 }
 
 // Logo
@@ -124,13 +124,13 @@
   border: 1px solid var(--border-color);
   border-radius: $radius-lg;
   box-shadow: var(--shadow-lg);
-  padding: $spacing-xl;
+  padding: $spacing-md;
   display: flex;
   flex-direction: column;
-  gap: $spacing-lg;
+  gap: $spacing-md;
 
   @media (max-width: $breakpoint-mobile) {
-    padding: $spacing-lg;
+    padding: $spacing-md;
     box-shadow: none;
     border: none;
     background: transparent;

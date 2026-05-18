@@ -60,7 +60,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: $spacing-lg;
+  gap: $spacing-md;
 
   @include mobile {
     flex-direction: column;
@@ -154,7 +154,7 @@
   align-items: center;
   justify-content: center;
   gap: $spacing-sm;
-  padding: $spacing-xl 0;
+  padding: $spacing-md 0;
   color: var(--text-secondary);
 }
 
@@ -208,7 +208,7 @@
 }
 
 .emptyModels {
-  padding: $spacing-xl $spacing-lg;
+  padding: $spacing-md;
   color: var(--text-secondary);
   font-size: 13px;
   text-align: center;

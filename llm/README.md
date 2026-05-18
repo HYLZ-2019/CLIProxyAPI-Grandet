@@ -54,3 +54,46 @@
 - 首次启动会自动修复 `APIKeysNextID = max(所有现有 ID) + 1`，后续操作不再复用。
 
 **状态：已实现**
+
+---
+
+### 2026-05-16/17 — 分析统计系统（Analytics & Usage Tracking）
+
+**目标：** 在本地 SQLite 数据库中记录每次请求的 Token 用量、429 配额耗尽事件、每小时聚合数据，并主动轮询上游 provider 配额 API。前端增加 Analytics 开关和日志保留天数配置。
+
+**架构：**
+- SQLite 驱动：`modernc.org/sqlite`（纯 Go，无 CGO，兼容 `CGO_ENABLED=0` 的 Docker 构建）
+- 数据库路径：`{config_dir}/analytics.db`
+- 四张表：`query_logs`（原始 per-query）、`hourly_aggregates`（每小时聚合）、`quota_exhaustion_events`（429 事件）、`quota_snapshots`（主动轮询快照）
+- Client key 追踪：`config_access/provider.go` 将 `api_key_id` 写入 `result.Metadata`，`AuthMiddleware` 注入到 request context（`analytics.ClientKeyIDCtxKey`），analytics plugin 从 context 读取
+- 配额轮询：复用 `authManager.List()` 中已有的 OAuth access token，每小时轮询 Claude/Codex/Gemini CLI 的配额 API
+
+**新增文件：**
+- `internal/analytics/analytics.go` — Store、DB 初始化、schema 迁移、所有查询方法
+- `internal/analytics/plugin.go` — 实现 `usage.Plugin`，`init()` 自注册
+- `internal/analytics/cleanup.go` — 每小时定期清理超过保留期的原始日志
+- `internal/analytics/quota_poller.go` — 主动轮询上游 provider 配额 API
+
+**改动文件：**
+- `go.mod` — 新增 `modernc.org/sqlite v1.36.1`（需用户运行 `go get modernc.org/sqlite@latest && go mod tidy`）
+- `internal/config/sdk_config.go` — 新增 `AnalyticsConfig`（`enabled`、`raw-log-retention-days`）
+- `sdk/config/config.go` — re-export `AnalyticsConfig`
+- `internal/api/server.go` — analytics init + quota poller 启动；AuthMiddleware 注入 client key ID；注册 analytics 路由
+- `internal/api/handlers/management/handler.go` — 新增 `analyticsDBPath` 字段和 setter
+- `internal/api/handlers/management/analytics.go` — 8 个 management API 端点
+- `web/src/types/visualConfig.ts` — 新增 `analyticsEnabled`、`analyticsRetentionDays` 字段
+- `web/src/hooks/useVisualConfig.ts` — YAML 读写和 dirty tracking
+- `web/src/components/config/VisualConfigEditor.tsx` — 新增 Analytics ConfigSection（section ID: `analytics`，indexLabel: `10`）
+- `web/src/i18n/locales/{en,zh-CN,zh-TW,ru}.json` — analytics i18n 字符串
+
+**Management API 端点（均在 `/v0/management/analytics/` 下）：**
+- `GET /summary` — 过去 24 小时请求数、Token 总量、错误数
+- `GET /hourly` — 按小时聚合（`?from=&to=` Unix 时间戳）
+- `GET /by-model` — 按模型分组
+- `GET /by-client` — 按 client key ID 分组
+- `GET /quota-events` — 429 事件列表
+- `GET /quota-snapshots` — 配额快照列表
+- `GET /config` — 返回 AnalyticsConfig JSON
+- `PUT /config` — 更新 enabled 和 retention days
+
+**状态：已实现；Go 依赖已 tidy。`go test ./...` 全量通过。前端 `type-check`、`lint`、Node v20.20.2 下的 `build` 均通过，并已用 Vite dev server smoke test `/analytics` 路由入口；尚未用真实浏览器手动点验 Analytics UI。**

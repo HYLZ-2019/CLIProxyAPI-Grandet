@@ -24,6 +24,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/access"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/analytics"
 	managementHandlers "github.com/router-for-me/CLIProxyAPI/v7/internal/api/handlers/management"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/api/middleware"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/api/modules"
@@ -288,6 +289,18 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		s.mgmt.SetPostAuthHook(optionState.postAuthHook)
 	}
 	s.localPassword = optionState.localPassword
+
+	// Always register the analytics DB path so the management API can enable it at runtime.
+	// Using a data/ subdirectory avoids Docker bind-mount creating a directory instead of a file.
+	analyticsDBPath := filepath.Join(filepath.Dir(configFilePath), "data", "analytics.db")
+	s.mgmt.SetAnalyticsDBPath(analyticsDBPath)
+	if cfg.Analytics.Enabled {
+		if err := analytics.Init(analyticsDBPath, cfg.Analytics.RawLogRetentionDays); err != nil {
+			log.Warnf("analytics: init failed: %v", err)
+		} else {
+			analytics.StartQuotaPoller(context.Background(), analytics.Get(), authManager)
+		}
+	}
 
 	// Home heartbeat gate: when home is enabled, block all endpoints with 503 until the
 	// subscribe-config heartbeat connection is healthy.
@@ -687,6 +700,19 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/kimi-auth-url", s.mgmt.RequestKimiToken)
 		mgmt.POST("/oauth-callback", s.mgmt.PostOAuthCallback)
 		mgmt.GET("/get-auth-status", s.mgmt.GetAuthStatus)
+
+		// Analytics
+		mgmt.GET("/analytics/summary", s.mgmt.GetAnalyticsSummary)
+		mgmt.GET("/analytics/hourly", s.mgmt.GetAnalyticsHourly)
+		mgmt.GET("/analytics/by-model", s.mgmt.GetAnalyticsByModel)
+		mgmt.GET("/analytics/by-client", s.mgmt.GetAnalyticsByClient)
+		mgmt.GET("/analytics/quota-events", s.mgmt.GetAnalyticsQuotaEvents)
+		mgmt.GET("/analytics/quota-snapshots", s.mgmt.GetAnalyticsQuotaSnapshots)
+		mgmt.GET("/analytics/token-prices", s.mgmt.GetAnalyticsTokenPrices)
+		mgmt.GET("/analytics/provider-quota-lines", s.mgmt.GetAnalyticsProviderQuotaLines)
+		mgmt.GET("/analytics/config", s.mgmt.GetAnalyticsConfig)
+		mgmt.PUT("/analytics/config", s.mgmt.PutAnalyticsConfig)
+		mgmt.PATCH("/analytics/config", s.mgmt.PutAnalyticsConfig)
 	}
 }
 
@@ -1476,6 +1502,13 @@ func AuthMiddleware(manager *sdkaccess.Manager) gin.HandlerFunc {
 				c.Set("accessProvider", result.Provider)
 				if len(result.Metadata) > 0 {
 					c.Set("accessMetadata", result.Metadata)
+					// Propagate client API key ID into the Go request context so the
+					// analytics usage plugin can attribute requests to the right key.
+					if keyID := result.Metadata["api_key_id"]; keyID != "" {
+						c.Request = c.Request.WithContext(
+							context.WithValue(c.Request.Context(), analytics.ClientKeyIDCtxKey, keyID),
+						)
+					}
 				}
 			}
 			c.Next()

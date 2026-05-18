@@ -4,7 +4,7 @@
 .container {
   display: flex;
   flex-direction: column;
-  gap: $spacing-lg;
+  gap: $spacing-md;
 }
 
 .pageHeader {
@@ -617,7 +617,7 @@
 
 .typeBadge {
   padding: 4px 10px;
-  border-radius: 12px;
+  border-radius: 8px;
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -666,7 +666,7 @@
 .warningModal {
   background-color: var(--bg-primary);
   border-radius: $radius-lg;
-  padding: $spacing-lg;
+  padding: $spacing-md;
   max-width: 400px;
   text-align: center;
   box-shadow: $shadow-lg;

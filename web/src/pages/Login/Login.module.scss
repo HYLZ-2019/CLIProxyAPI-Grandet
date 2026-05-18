@@ -85,12 +85,12 @@
 .form {
   width: 100%;
   background-color: var(--bg-primary);
-  padding: $spacing-2xl;
+  padding: $spacing-md;
   border-radius: $radius-lg;
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
-  gap: $spacing-lg;
+  gap: $spacing-md;
 }
 
 .detectedInfo {

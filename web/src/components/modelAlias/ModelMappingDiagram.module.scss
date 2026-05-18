@@ -23,7 +23,7 @@
   min-width: 100%;
   min-height: 300px;
   justify-content: space-between;
-  padding: 20px 0;
+  padding: 12px 0;
   user-select: none;
 
   @media (max-width: 768px) {
@@ -288,7 +288,7 @@
   color: var(--text-tertiary);
   font-size: 13px;
   text-align: center;
-  padding: $spacing-lg 0;
+  padding: $spacing-md 0;
 }
 
 .settingsList {

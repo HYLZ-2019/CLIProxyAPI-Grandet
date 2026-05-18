@@ -115,9 +115,91 @@
     "auth_files": "认证文件",
     "oauth": "OAuth 登录",
     "quota_management": "配额管理",
+    "analytics": "用量统计",
     "config_management": "配置面板",
+    "api_key_management": "API Key管理",
     "logs": "日志查看",
     "system_info": "中心信息"
+  },
+  "api_keys_management": {
+    "eyebrow": "常用配置",
+    "title": "API Key管理",
+    "description": "无需进入完整配置编辑器，直接管理客户端 API Key。",
+    "section_description": "配置认证目录，以及 CLIProxyAPI 接受的客户端 API Key。"
+  },
+  "analytics": {
+    "title": "用量统计",
+    "description": "来自本地 SQLite 的每请求用量、小时聚合、解算出的 token 单价和 provider 配额折线。",
+    "disconnected": "请先连接到代理以查看统计数据。",
+    "not_enabled": "尚未启用用量统计。",
+    "not_enabled_hint": "前往「配置面板 → 分析统计」打开开关，重启代理后即可生效。",
+    "no_data": "所选区间没有数据。",
+    "range": {
+      "1h": "近 1 小时",
+      "24h": "近 24 小时",
+      "7d": "近 7 天"
+    },
+    "cards": {
+      "requests": "请求总数",
+      "success_rate": "成功率",
+      "total_tokens": "Token 总量",
+      "errors": "错误数",
+      "quota_events_count": "{{count}} 次配额事件"
+    },
+    "charts": {
+      "trend_title": "小时趋势",
+      "trend_hint": "按小时聚合。左轴 = 请求数，右轴 = Token 总量。",
+      "by_model_title": "热门模型",
+      "by_model_hint": "所选区间内各模型的请求数（前 10）。",
+      "by_client_title": "热门 Client API Key",
+      "by_client_hint": "按 Client API Key ID 统计请求数（前 10）。",
+      "requests_axis": "请求",
+      "tokens_axis": "Token"
+    },
+    "quota_lines": {
+      "title": "Provider 配额折线",
+      "hint": "每个 provider 一张图：主动查询得到的剩余额度点数、CLIProxyAPI 累计加权用量、可选的 429 红点，以及预计刷新绿点。",
+      "hide_429": "隐藏 429 红点",
+      "show_429": "显示 429 红点",
+      "hide_refresh_markers": "隐藏刷新绿点",
+      "show_refresh_markers": "显示刷新绿点",
+      "reset_on_429": "429 时重置累计线",
+      "reset_on_refresh": "预计刷新时重置累计线",
+      "quota_remaining": "剩余额度点数",
+      "cliproxy_cumulative": "CLIProxyAPI 累计点数",
+      "quota_429": "429 事件",
+      "expected_refresh": "预计刷新",
+      "weekly_capacity": "按最贵 token 的 100% 额度",
+      "no_window": "无配额窗口"
+    },
+    "prices": {
+      "title": "每日 token 单价",
+      "hint": "根据配额变化和小时 token 用量解算出的当前日期单价，单位为每 1M token 消耗的额度点。",
+      "col_date": "日期",
+      "col_provider": "Provider",
+      "col_model": "模型",
+      "col_token_type": "Token 类型",
+      "col_price": "点数 / 1M",
+      "col_status": "状态",
+      "col_equations": "方程数",
+      "col_residual": "RMS 残差",
+      "col_solved_at": "解算时间",
+      "token_type": {
+        "input": "Input",
+        "output": "Output",
+        "cached_input": "Cached input"
+      },
+      "status": {
+        "solved": "已解算",
+        "insufficient_equations": "方程不足",
+        "rank_deficient": "秩不足",
+        "low_confidence": "低可信度",
+        "unknown": "未知"
+      }
+    },
+    "errors": {
+      "load_failed": "加载用量数据失败。"
+    }
   },
   "dashboard": {
     "title": "仪表盘",
@@ -1124,6 +1206,14 @@
           "antigravity_credits": "Antigravity Credits 重试",
           "antigravity_credits_desc": "Antigravity 返回 quota_exhausted 429 时，使用 enabledCreditTypes=[\"GOOGLE_ONE_AI\"] 重试一次"
         },
+        "analytics": {
+          "title": "用量分析",
+          "description": "每次请求的 token 用量记录与配额追踪（存储于本地 SQLite 数据库）",
+          "enabled": "启用用量分析",
+          "enabled_desc": "将每次代理请求的模型、token 用量及 429 配额事件写入本地 SQLite 文件",
+          "retention": "原始日志保留天数",
+          "retention_hint": "原始请求日志在此天数后自动删除；小时聚合数据永久保留"
+        },
         "streaming": {
           "title": "流式传输配置",
           "description": "Keepalive 与 bootstrap 重试设置",
@@ -1155,12 +1245,17 @@
         "add": "添加 API 密钥",
         "generate": "生成",
         "empty": "暂无 API 密钥",
-        "hint": "每个条目代表一个 API 密钥（与 「API 密钥管理」 页面样式一致）",
+        "hint": "名称和稳定 ID 会保存到本地 api-keys 配置中。",
         "edit_title": "编辑 API 密钥",
         "add_title": "添加 API 密钥",
+        "id_value": "ID: {{id}}",
+        "id_pending": "ID: 待保存",
+        "unnamed": "未命名 API 密钥",
+        "name_label": "名称",
+        "name_placeholder": "可选显示名称",
         "input_label": "API 密钥",
         "input_placeholder": "粘贴你的 API 密钥",
-        "input_hint": "此处仅修改本地配置文件内容，不会自动同步到 API 密钥管理接口",
+        "input_hint": "API 密钥为必填；名称可选，会显示在统计和 client key 列表中。",
         "error_empty": "请输入 API 密钥",
         "error_invalid": "API 密钥包含无效字符"
       },

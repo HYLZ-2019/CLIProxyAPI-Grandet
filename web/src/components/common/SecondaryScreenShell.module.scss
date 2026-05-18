@@ -3,7 +3,7 @@
 .container {
   display: flex;
   flex-direction: column;
-  gap: $spacing-lg;
+  gap: $spacing-md;
   min-height: 0;
 }
 
@@ -72,14 +72,14 @@
   align-items: center;
   justify-content: center;
   gap: $spacing-sm;
-  padding: $spacing-2xl 0;
+  padding: $spacing-md 0;
   color: var(--text-secondary);
 }
 
 .content {
   display: flex;
   flex-direction: column;
-  gap: $spacing-lg;
+  gap: $spacing-md;
 }
 
 .contentWithFloatingAction {

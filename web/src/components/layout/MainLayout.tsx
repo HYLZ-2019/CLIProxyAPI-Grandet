@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/Button';
 import { PageTransition } from '@/components/common/PageTransition';
 import { MainRoutes } from '@/router/MainRoutes';
 import {
+  IconChartLine,
+  IconKey,
   IconSidebarAuthFiles,
   IconSidebarConfig,
   IconSidebarDashboard,
@@ -41,7 +43,9 @@ const sidebarIcons: Record<string, ReactNode> = {
   authFiles: <IconSidebarAuthFiles size={18} />,
   oauth: <IconSidebarOauth size={18} />,
   quota: <IconSidebarQuota size={18} />,
+  analytics: <IconChartLine size={18} />,
   config: <IconSidebarConfig size={18} />,
+  apiKeys: <IconKey size={18} />,
   logs: <IconSidebarLogs size={18} />,
   system: <IconSidebarSystem size={18} />,
 };
@@ -385,12 +389,14 @@ export function MainLayout() {
   }, [fetchConfig]);
 
   const navItems = [
-    { path: '/', label: t('nav.dashboard'), icon: sidebarIcons.dashboard },
-    { path: '/config', label: t('nav.config_management'), icon: sidebarIcons.config },
+    { path: '/', label: t('nav.dashboard'), icon: sidebarIcons.dashboard, end: true },
+    { path: '/config', label: t('nav.config_management'), icon: sidebarIcons.config, end: true },
+    { path: '/config/api-keys', label: t('nav.api_key_management'), icon: sidebarIcons.apiKeys },
     { path: '/ai-providers', label: t('nav.ai_providers'), icon: sidebarIcons.aiProviders },
     { path: '/auth-files', label: t('nav.auth_files'), icon: sidebarIcons.authFiles },
     { path: '/oauth', label: t('nav.oauth', { defaultValue: 'OAuth' }), icon: sidebarIcons.oauth },
     { path: '/quota', label: t('nav.quota_management'), icon: sidebarIcons.quota },
+    { path: '/analytics', label: t('nav.analytics'), icon: sidebarIcons.analytics },
     ...(config?.loggingToFile
       ? [{ path: '/logs', label: t('nav.logs'), icon: sidebarIcons.logs }]
       : []),
@@ -415,6 +421,9 @@ export function MainLayout() {
         return aiProvidersIndex + 0.05;
       }
     }
+
+    const configIndex = navOrder.indexOf('/config');
+    if (configIndex !== -1 && normalizedPath === '/config/api-keys') return configIndex + 0.1;
 
     const authFilesIndex = navOrder.indexOf('/auth-files');
     if (authFilesIndex !== -1) {
@@ -447,6 +456,8 @@ export function MainLayout() {
       pathname === '/auth-files' || pathname.startsWith('/auth-files/');
     const isAiProviders = (pathname: string) =>
       pathname === '/ai-providers' || pathname.startsWith('/ai-providers/');
+    const isConfig = (pathname: string) => pathname === '/config' || pathname.startsWith('/config/');
+    if (isConfig(from) && isConfig(to)) return 'ios';
     if (isAuthFiles(from) && isAuthFiles(to)) return 'ios';
     if (isAiProviders(from) && isAiProviders(to)) return 'ios';
     return 'vertical';
@@ -656,6 +667,7 @@ export function MainLayout() {
               <NavLink
                 key={item.path}
                 to={item.path}
+                end={item.end}
                 className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
                 onClick={() => setSidebarOpen(false)}
                 title={showSidebarLabels ? undefined : item.label}

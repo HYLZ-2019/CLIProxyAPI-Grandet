@@ -1,13 +1,13 @@
 @use './variables.scss' as *;
 
 :root {
-  --header-height: 80px;
-  --shell-gutter: 24px;
-  --sidebar-panel-width: 240px;
-  --sidebar-collapsed-width: 68px;
+  --header-height: 64px;
+  --shell-gutter: 16px;
+  --sidebar-panel-width: 220px;
+  --sidebar-collapsed-width: 60px;
   --sidebar-active-width: var(--sidebar-panel-width);
-  --sidebar-gap: 32px;
-  --floating-control-size: 38px;
+  --sidebar-gap: 18px;
+  --floating-control-size: 34px;
 }
 
 .app-shell {
@@ -40,7 +40,7 @@
   right: 0;
   left: 0;
   z-index: $z-dropdown - 2;
-  height: 141px;
+  height: 104px;
   pointer-events: none;
   background: linear-gradient(
     180deg,
@@ -84,12 +84,12 @@
   .sidebar-toggle-floating {
     position: absolute;
     top: var(--shell-gutter);
-    left: calc(var(--shell-gutter) + var(--sidebar-active-width) + 22px);
-    width: 44px;
-    height: 44px;
+    left: calc(var(--shell-gutter) + var(--sidebar-active-width) + 14px);
+    width: 38px;
+    height: 38px;
     padding: 0;
     border: 1px solid color-mix(in srgb, var(--border-color) 68%, transparent);
-    border-radius: 12px;
+    border-radius: 10px;
     background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
     color: var(--text-secondary);
     box-shadow:
@@ -135,10 +135,10 @@
     top: var(--shell-gutter);
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 6px;
+    gap: 3px;
+    padding: 4px;
     border: 1px solid color-mix(in srgb, var(--border-color) 68%, transparent);
-    border-radius: 16px;
+    border-radius: 9px;
     background: color-mix(in srgb, var(--bg-primary) 68%, transparent);
     color: var(--text-secondary);
     box-shadow:
@@ -165,7 +165,7 @@
     height: var(--floating-control-size);
     min-width: var(--floating-control-size);
     padding: 0;
-    border-radius: 11px;
+    border-radius: 9px;
     background: transparent;
     color: var(--text-secondary);
     border-color: transparent;
@@ -385,17 +385,17 @@
   z-index: $z-dropdown - 1;
   width: var(--sidebar-panel-width);
   height: calc(100vh - var(--shell-gutter) - var(--shell-gutter));
-  padding: 18px 14px;
+  padding: 14px 10px;
   display: flex;
   flex-direction: column;
-  gap: $spacing-md;
+  gap: $spacing-sm;
   flex-shrink: 0;
   overflow-y: auto;
   background:
     linear-gradient(180deg, rgb(255 255 255 / 0.035), rgb(255 255 255 / 0)),
     color-mix(in srgb, var(--bg-primary) 72%, transparent);
   border: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
-  border-radius: 18px;
+  border-radius: 9px;
   box-shadow: none;
   --glass-blur: 18px;
   backdrop-filter: var(--glass-backdrop-filter);
@@ -416,7 +416,7 @@
 
   &.collapsed {
     width: var(--sidebar-collapsed-width);
-    padding: 18px 10px;
+    padding: 14px 8px;
 
     .sidebar-brand {
       justify-content: center;
@@ -426,7 +426,7 @@
 
     .nav-item {
       justify-content: center;
-      padding: 10px;
+      padding: 8px;
     }
   }
 
@@ -434,15 +434,15 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    min-height: 42px;
-    padding: 0 10px 12px;
+    min-height: 36px;
+    padding: 0 8px 8px;
     color: var(--text-primary);
     flex-shrink: 0;
   }
 
   .sidebar-brand-logo {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     object-fit: contain;
     border-radius: 8px;
     box-shadow: none;
@@ -453,7 +453,7 @@
     min-width: 0;
     overflow: hidden;
     color: var(--text-primary);
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 800;
     letter-spacing: 0;
     white-space: nowrap;
@@ -462,13 +462,13 @@
   .nav-section {
     display: flex;
     flex-direction: column;
-    gap: $spacing-sm;
+    gap: 6px;
     flex: 1;
   }
 
   .nav-item {
-    padding: 10px 12px;
-    border-radius: 11px;
+    padding: 8px 10px;
+    border-radius: 9px;
     border: 1px solid transparent;
     color: var(--text-primary);
     font-weight: 650;
@@ -484,8 +484,8 @@
       transform $transition-fast;
 
     .nav-icon {
-      width: 28px;
-      height: 28px;
+      width: 24px;
+      height: 24px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -503,8 +503,8 @@
         color $transition-fast;
 
       svg {
-        width: 18px;
-        height: 18px;
+        width: 16px;
+        height: 16px;
         display: block;
       }
     }
@@ -567,10 +567,10 @@
 .main-content {
   flex: 1 0 auto;
   min-height: 100%;
-  padding: 70px clamp(20px, 3vw, 48px) 40px;
+  padding: 48px clamp(12px, 2vw, 28px) 22px;
   display: flex;
   flex-direction: column;
-  gap: $spacing-lg;
+  gap: $spacing-md;
   overflow-x: hidden;
 
   &.main-content-logs {
@@ -582,7 +582,7 @@
 
 .grid {
   display: grid;
-  gap: $spacing-lg;
+  gap: $spacing-md;
 }
 
 @media (min-width: $breakpoint-tablet) {
@@ -593,14 +593,14 @@
 
 @media (max-width: $breakpoint-mobile) {
   :root {
-    --header-height: 74px;
-    --shell-gutter: 12px;
+    --header-height: 60px;
+    --shell-gutter: 10px;
     --sidebar-panel-width: min(280px, calc(100vw - 24px));
     --floating-control-size: 36px;
   }
 
   .top-gradient-blur {
-    height: 114px;
+    height: 92px;
   }
 
   .main-header {
@@ -616,7 +616,7 @@
       );
       padding: 5px;
       gap: 2px;
-      border-radius: 14px;
+      border-radius: 9px;
     }
 
     .mobile-sidebar-actions {
@@ -625,7 +625,7 @@
       left: var(--shell-gutter);
       padding: 5px;
       gap: 2px;
-      border-radius: 14px;
+      border-radius: 9px;
     }
 
     .mobile-menu-btn {
@@ -727,7 +727,7 @@
   }
 
   .main-content {
-    padding: calc(var(--header-height) + 16px) $spacing-md $spacing-lg;
+    padding: calc(var(--header-height) + 10px) $spacing-md $spacing-lg;
 
     &.main-content-logs {
       flex: 0 0 auto;

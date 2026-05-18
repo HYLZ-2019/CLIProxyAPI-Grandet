@@ -1,0 +1,406 @@
+@use '@/styles/variables' as *;
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+  padding: $spacing-md;
+  min-height: 100%;
+}
+
+.pageHeader {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.pageTitle {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.description {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+}
+
+.rangeGroup {
+  display: inline-flex;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: $radius-md;
+  padding: 2px;
+  gap: 2px;
+}
+
+.rangeBtn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-radius: $radius-sm;
+  cursor: pointer;
+  transition: background $transition-fast, color $transition-fast;
+
+  &:hover {
+    color: var(--text-primary);
+  }
+}
+
+.rangeBtnActive {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: $shadow-sm;
+}
+
+.toggleGroup {
+  display: inline-flex;
+  gap: $spacing-xs;
+  flex-wrap: wrap;
+}
+
+.toggleBtn {
+  appearance: none;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  border-radius: $radius-sm;
+  padding: 5px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background $transition-fast, color $transition-fast, border-color $transition-fast;
+
+  &:hover {
+    color: var(--text-primary);
+    border-color: var(--text-tertiary);
+  }
+}
+
+.toggleBtnActive {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: $primary-color;
+}
+
+.loadingTag {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.errorBox {
+  padding: $spacing-md;
+  border-radius: $radius-md;
+  background: color-mix(in srgb, #{$error-color} 12%, transparent);
+  color: var(--text-primary);
+  border: 1px solid color-mix(in srgb, #{$error-color} 40%, transparent);
+  font-size: 13px;
+}
+
+.emptyState {
+  padding: $spacing-md $spacing-lg;
+  text-align: center;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border: 1px dashed var(--border-color);
+  border-radius: $radius-lg;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.subtle {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  margin: 0;
+}
+
+/* ── Summary stat cards ─────────────────────────────── */
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: $spacing-sm;
+
+  @media (max-width: 900px) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  @media (max-width: 500px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.statCard {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: $spacing-sm $spacing-md;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: $radius-md;
+  box-shadow: var(--shadow);
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--text-tertiary);
+  }
+}
+
+.accent_primary::before {
+  background: $primary-color;
+}
+.accent_success::before {
+  background: $success-color;
+}
+.accent_error::before {
+  background: $error-color;
+}
+
+.statLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.statValue {
+  font-size: 23px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.statSub {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* ── Chart / table cards ────────────────────────────── */
+
+.card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: $radius-lg;
+  padding: $spacing-md;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.cardHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cardHint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.chartEmpty {
+  padding: $spacing-md;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.providerGrid {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.providerCard {
+  border: 1px solid var(--border-color);
+  border-radius: $radius-md;
+  padding: $spacing-sm;
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.providerHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-sm;
+}
+
+.providerTitle {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.providerStat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 3px $spacing-sm;
+  border-radius: $radius-sm;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+
+  strong {
+    color: var(--text-primary);
+    font-size: 14px;
+  }
+}
+
+.twoCol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: $spacing-md;
+
+  @media (max-width: 1100px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Tables ─────────────────────────────────────────── */
+
+.tableWrap {
+  overflow-x: auto;
+  margin: 0 -#{$spacing-md};
+}
+
+.dataTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+
+  th,
+  td {
+    text-align: left;
+    padding: 6px $spacing-sm;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  th {
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: var(--bg-secondary);
+  }
+
+  td {
+    color: var(--text-primary);
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+
+  tr:hover td {
+    background: var(--bg-tertiary);
+  }
+}
+
+.mono {
+  font-family: $font-mono;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.status_solved {
+  border-color: color-mix(in srgb, #{$success-color} 40%, transparent);
+  color: $success-color;
+}
+
+.status_insufficient_equations,
+.status_rank_deficient {
+  border-color: color-mix(in srgb, #d2a04e 45%, transparent);
+  color: #d2a04e;
+}
+
+.status_low_confidence {
+  border-color: color-mix(in srgb, #{$error-color} 40%, transparent);
+  color: $error-color;
+}
+
+/* ── Usage bar inside snapshots table ──────────────── */
+
+.usageBar {
+  position: relative;
+  width: 160px;
+  height: 18px;
+  background: var(--bg-secondary);
+  border-radius: $radius-sm;
+  overflow: hidden;
+}
+
+.usageFill {
+  height: 100%;
+  transition: width $transition-normal;
+}
+
+.usage_ok {
+  background: $success-color;
+}
+.usage_warn {
+  background: #d2a04e;
+}
+.usage_error {
+  background: $error-color;
+}
+
+.usageText {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-shadow: 0 0 4px var(--bg-primary);
+}

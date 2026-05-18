@@ -25,7 +25,7 @@
 .content {
   display: flex;
   flex-direction: column;
-  gap: $spacing-xl;
+  gap: $spacing-md;
 }
 
 .cardContent {
@@ -60,12 +60,12 @@
 .oauthSection {
   display: flex;
   flex-direction: column;
-  gap: $spacing-lg;
+  gap: $spacing-md;
 }
 
 .oauthGrid {
   display: grid;
-  gap: $spacing-lg;
+  gap: $spacing-md;
   grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
 
   @include mobile {

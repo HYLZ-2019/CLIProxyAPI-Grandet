@@ -15,7 +15,7 @@ import (
 type keysTabModel struct {
 	client   *Client
 	viewport viewport.Model
-	keys     []string
+	keys     []APIKeyEntry
 	gemini   []map[string]any
 	claude   []map[string]any
 	codex    []map[string]any
@@ -31,13 +31,14 @@ type keysTabModel struct {
 
 	// Editing / Adding
 	editing   bool
+	editName  bool
 	adding    bool
 	editIdx   int
 	editInput textinput.Model
 }
 
 type keysDataMsg struct {
-	apiKeys []string
+	apiKeys []APIKeyEntry
 	gemini  []map[string]any
 	claude  []map[string]any
 	codex   []map[string]any
@@ -121,16 +122,23 @@ func (m keysTabModel) Update(msg tea.Msg) (keysTabModel, tea.Cmd) {
 			switch msg.String() {
 			case "enter":
 				value := strings.TrimSpace(m.editInput.Value())
-				if value == "" {
+				if value == "" && !m.editName {
 					m.editing = false
+					m.editName = false
 					m.adding = false
 					m.editInput.Blur()
 					m.viewport.SetContent(m.renderContent())
 					return m, nil
 				}
 				isAdding := m.adding
+				isNameEdit := m.editName
 				editIdx := m.editIdx
+				var entry APIKeyEntry
+				if editIdx >= 0 && editIdx < len(m.keys) {
+					entry = m.keys[editIdx]
+				}
 				m.editing = false
+				m.editName = false
 				m.adding = false
 				m.editInput.Blur()
 				if isAdding {
@@ -142,8 +150,17 @@ func (m keysTabModel) Update(msg tea.Msg) (keysTabModel, tea.Cmd) {
 						return keyActionMsg{action: T("key_added")}
 					}
 				}
+				if isNameEdit {
+					return m, func() tea.Msg {
+						err := m.client.EditAPIKeyName(entry.ID, editIdx, value)
+						if err != nil {
+							return keyActionMsg{err: err}
+						}
+						return keyActionMsg{action: T("key_name_updated")}
+					}
+				}
 				return m, func() tea.Msg {
-					err := m.client.EditAPIKey(editIdx, value)
+					err := m.client.EditAPIKey(entry.ID, editIdx, value)
 					if err != nil {
 						return keyActionMsg{err: err}
 					}
@@ -151,6 +168,7 @@ func (m keysTabModel) Update(msg tea.Msg) (keysTabModel, tea.Cmd) {
 				}
 			case "esc":
 				m.editing = false
+				m.editName = false
 				m.adding = false
 				m.editInput.Blur()
 				m.viewport.SetContent(m.renderContent())
@@ -168,9 +186,13 @@ func (m keysTabModel) Update(msg tea.Msg) (keysTabModel, tea.Cmd) {
 			switch msg.String() {
 			case "y", "Y":
 				idx := m.confirm
+				var entry APIKeyEntry
+				if idx >= 0 && idx < len(m.keys) {
+					entry = m.keys[idx]
+				}
 				m.confirm = -1
 				return m, func() tea.Msg {
-					err := m.client.DeleteAPIKey(idx)
+					err := m.client.DeleteAPIKey(entry.ID, idx)
 					if err != nil {
 						return keyActionMsg{err: err}
 					}
@@ -202,19 +224,35 @@ func (m keysTabModel) Update(msg tea.Msg) (keysTabModel, tea.Cmd) {
 			// Add new key
 			m.adding = true
 			m.editing = false
+			m.editName = false
 			m.editInput.SetValue("")
 			m.editInput.Prompt = T("new_key_prompt")
 			m.editInput.Focus()
 			m.viewport.SetContent(m.renderContent())
 			return m, textinput.Blink
 		case "e":
-			// Edit selected key
+			// Edit selected key secret
 			if m.cursor < len(m.keys) {
 				m.editing = true
+				m.editName = false
 				m.adding = false
 				m.editIdx = m.cursor
-				m.editInput.SetValue(m.keys[m.cursor])
+				m.editInput.SetValue(m.keys[m.cursor].APIKey)
 				m.editInput.Prompt = T("edit_key_prompt")
+				m.editInput.Focus()
+				m.viewport.SetContent(m.renderContent())
+				return m, textinput.Blink
+			}
+			return m, nil
+		case "n":
+			// Edit selected key name
+			if m.cursor < len(m.keys) {
+				m.editing = true
+				m.editName = true
+				m.adding = false
+				m.editIdx = m.cursor
+				m.editInput.SetValue(m.keys[m.cursor].Name)
+				m.editInput.Prompt = T("edit_name_prompt")
 				m.editInput.Focus()
 				m.viewport.SetContent(m.renderContent())
 				return m, textinput.Blink
@@ -230,7 +268,7 @@ func (m keysTabModel) Update(msg tea.Msg) (keysTabModel, tea.Cmd) {
 		case "c":
 			// Copy selected key to clipboard
 			if m.cursor < len(m.keys) {
-				key := m.keys[m.cursor]
+				key := m.keys[m.cursor].APIKey
 				if err := clipboard.WriteAll(key); err != nil {
 					m.status = errorStyle.Render(T("copy_failed") + ": " + err.Error())
 				} else {
@@ -308,13 +346,17 @@ func (m keysTabModel) renderContent() string {
 			rowStyle = lipgloss.NewStyle().Bold(true)
 		}
 
-		row := fmt.Sprintf("%s%d. %s", cursor, i+1, maskKey(key))
+		name := strings.TrimSpace(key.Name)
+		if name == "" {
+			name = T("unnamed_key")
+		}
+		row := fmt.Sprintf("%s%d. [id=%s] %s  %s", cursor, i+1, key.ID, name, maskKey(key.APIKey))
 		sb.WriteString(rowStyle.Render(row))
 		sb.WriteString("\n")
 
 		// Delete confirmation
 		if m.confirm == i {
-			sb.WriteString(warningStyle.Render(fmt.Sprintf("    "+T("confirm_delete_key"), maskKey(key))))
+			sb.WriteString(warningStyle.Render(fmt.Sprintf("    "+T("confirm_delete_key"), maskKey(key.APIKey))))
 			sb.WriteString("\n")
 		}
 

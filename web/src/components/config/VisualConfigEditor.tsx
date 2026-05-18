@@ -16,9 +16,9 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import {
+  IconChartLine,
   IconCode,
   IconDiamond,
-  IconKey,
   IconSatellite,
   IconSettings,
   IconShield,
@@ -37,23 +37,19 @@ import type {
   VisualConfigValidationErrors,
   VisualConfigValues,
 } from '@/types/visualConfig';
-import {
-  ApiKeysCardEditor,
-  PayloadFilterRulesEditor,
-  PayloadRulesEditor,
-} from './VisualConfigEditorBlocks';
+import { PayloadFilterRulesEditor, PayloadRulesEditor } from './VisualConfigEditorBlocks';
 import styles from './VisualConfigEditor.module.scss';
 
 type VisualSectionId =
   | 'server'
   | 'tls'
   | 'remote'
-  | 'auth'
   | 'system'
   | 'network'
   | 'quota'
   | 'streaming'
-  | 'payload';
+  | 'payload'
+  | 'analytics';
 
 type VisualSection = {
   id: VisualSectionId;
@@ -222,10 +218,6 @@ export function VisualConfigEditor({
     validationErrors?.['streaming.nonstreamKeepaliveInterval']
   );
 
-  const handleApiKeysTextChange = useCallback(
-    (apiKeysText: string) => onChange({ apiKeysText }),
-    [onChange]
-  );
   const handlePayloadDefaultRulesChange = useCallback(
     (payloadDefaultRules: PayloadRule[]) => onChange({ payloadDefaultRules }),
     [onChange]
@@ -277,13 +269,6 @@ export function VisualConfigEditor({
         errorCount: 0,
       },
       {
-        id: 'auth',
-        title: t('config_management.visual.sections.auth.title'),
-        description: t('config_management.visual.sections.auth.description'),
-        icon: IconKey,
-        errorCount: 0,
-      },
-      {
         id: 'system',
         title: t('config_management.visual.sections.system.title'),
         description: t('config_management.visual.sections.system.description'),
@@ -321,6 +306,13 @@ export function VisualConfigEditor({
         description: t('config_management.visual.sections.payload.description'),
         icon: IconCode,
         errorCount: hasPayloadValidationErrors ? 1 : 0,
+      },
+      {
+        id: 'analytics',
+        title: t('config_management.visual.sections.analytics.title'),
+        description: t('config_management.visual.sections.analytics.description'),
+        icon: IconChartLine,
+        errorCount: 0,
       },
     ],
     [countErrors, hasPayloadValidationErrors, t]
@@ -728,40 +720,11 @@ export function VisualConfigEditor({
           </ConfigSection>
 
           <ConfigSection
-            id="auth"
-            ref={(node) => {
-              sectionRefs.current.auth = node;
-            }}
-            indexLabel="04"
-            icon={<IconKey size={16} />}
-            title={t('config_management.visual.sections.auth.title')}
-            description={t('config_management.visual.sections.auth.description')}
-          >
-            <SectionStack>
-              <Input
-                label={t('config_management.visual.sections.auth.auth_dir')}
-                placeholder="~/.cli-proxy-api"
-                value={values.authDir}
-                onChange={(e) => onChange({ authDir: e.target.value })}
-                disabled={disabled}
-                hint={t('config_management.visual.sections.auth.auth_dir_hint')}
-              />
-              <div className={styles.subsection}>
-                <ApiKeysCardEditor
-                  value={values.apiKeysText}
-                  disabled={disabled}
-                  onChange={handleApiKeysTextChange}
-                />
-              </div>
-            </SectionStack>
-          </ConfigSection>
-
-          <ConfigSection
             id="system"
             ref={(node) => {
               sectionRefs.current.system = node;
             }}
-            indexLabel="05"
+            indexLabel="04"
             icon={<IconDiamond size={16} />}
             title={t('config_management.visual.sections.system.title')}
             description={t('config_management.visual.sections.system.description')}
@@ -810,7 +773,7 @@ export function VisualConfigEditor({
             ref={(node) => {
               sectionRefs.current.network = node;
             }}
-            indexLabel="06"
+            indexLabel="05"
             icon={<IconTrendingUp size={16} />}
             title={t('config_management.visual.sections.network.title')}
             description={t('config_management.visual.sections.network.description')}
@@ -922,7 +885,7 @@ export function VisualConfigEditor({
             ref={(node) => {
               sectionRefs.current.quota = node;
             }}
-            indexLabel="07"
+            indexLabel="06"
             icon={<IconTimer size={16} />}
             title={t('config_management.visual.sections.quota.title')}
             description={t('config_management.visual.sections.quota.description')}
@@ -959,7 +922,7 @@ export function VisualConfigEditor({
             ref={(node) => {
               sectionRefs.current.streaming = node;
             }}
-            indexLabel="08"
+            indexLabel="07"
             icon={<IconSatellite size={16} />}
             title={t('config_management.visual.sections.streaming.title')}
             description={t('config_management.visual.sections.streaming.description')}
@@ -1060,7 +1023,7 @@ export function VisualConfigEditor({
             ref={(node) => {
               sectionRefs.current.payload = node;
             }}
-            indexLabel="09"
+            indexLabel="08"
             icon={<IconCode size={16} />}
             title={t('config_management.visual.sections.payload.title')}
             description={t('config_management.visual.sections.payload.description')}
@@ -1124,6 +1087,35 @@ export function VisualConfigEditor({
                   onChange={handlePayloadFilterRulesChange}
                 />
               </SectionSubsection>
+            </SectionStack>
+          </ConfigSection>
+
+          <ConfigSection
+            id="analytics"
+            ref={(node) => {
+              sectionRefs.current.analytics = node;
+            }}
+            indexLabel="09"
+            icon={<IconChartLine size={16} />}
+            title={t('config_management.visual.sections.analytics.title')}
+            description={t('config_management.visual.sections.analytics.description')}
+          >
+            <SectionStack>
+              <ToggleRow
+                title={t('config_management.visual.sections.analytics.enabled')}
+                description={t('config_management.visual.sections.analytics.enabled_desc')}
+                checked={values.analyticsEnabled}
+                disabled={disabled}
+                onChange={(analyticsEnabled) => onChange({ analyticsEnabled })}
+              />
+              <Input
+                label={t('config_management.visual.sections.analytics.retention')}
+                hint={t('config_management.visual.sections.analytics.retention_hint')}
+                value={values.analyticsRetentionDays}
+                disabled={disabled}
+                onChange={(e) => onChange({ analyticsRetentionDays: e.target.value })}
+                placeholder="7"
+              />
             </SectionStack>
           </ConfigSection>
         </div>

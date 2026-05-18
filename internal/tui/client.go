@@ -18,6 +18,38 @@ type Client struct {
 	http      *http.Client
 }
 
+type APIKeyEntry struct {
+	ID     string `json:"id"`
+	Name   string `json:"name,omitempty"`
+	APIKey string `json:"api-key"`
+}
+
+func (e *APIKeyEntry) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err == nil {
+		e.ID = ""
+		e.Name = ""
+		e.APIKey = strings.TrimSpace(raw)
+		return nil
+	}
+	var entry struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		APIKey string `json:"api-key"`
+		Key    string `json:"key"`
+	}
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return err
+	}
+	e.ID = strings.TrimSpace(entry.ID)
+	e.Name = strings.TrimSpace(entry.Name)
+	e.APIKey = strings.TrimSpace(entry.APIKey)
+	if e.APIKey == "" {
+		e.APIKey = strings.TrimSpace(entry.Key)
+	}
+	return nil
+}
+
 // NewClient creates a new management API client.
 func NewClient(port int, secretKey string) *Client {
 	return &Client{
@@ -236,7 +268,7 @@ func (c *Client) GetLogs(after int64, limit int) ([]string, int64, error) {
 
 // GetAPIKeys fetches the list of API keys.
 // API returns {"api-keys": [...]}.
-func (c *Client) GetAPIKeys() ([]string, error) {
+func (c *Client) GetAPIKeys() ([]APIKeyEntry, error) {
 	wrapper, err := c.getJSON("/v0/management/api-keys")
 	if err != nil {
 		return nil, err
@@ -249,32 +281,64 @@ func (c *Client) GetAPIKeys() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var result []string
+	var result []APIKeyEntry
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
+	}
+	for i := range result {
+		result[i].ID = strings.TrimSpace(result[i].ID)
+		result[i].Name = strings.TrimSpace(result[i].Name)
+		result[i].APIKey = strings.TrimSpace(result[i].APIKey)
+		if result[i].ID == "" {
+			result[i].ID = strconv.Itoa(i + 1)
+		}
 	}
 	return result, nil
 }
 
-// AddAPIKey adds a new API key by sending old=nil, new=key which appends.
+// AddAPIKey adds a new API key.
 func (c *Client) AddAPIKey(key string) error {
-	body := map[string]any{"old": nil, "new": key}
+	body := map[string]any{"value": map[string]any{"api-key": key}}
 	jsonBody, _ := json.Marshal(body)
 	_, err := c.patch("/v0/management/api-keys", strings.NewReader(string(jsonBody)))
 	return err
 }
 
-// EditAPIKey replaces an API key at the given index.
-func (c *Client) EditAPIKey(index int, newValue string) error {
-	body := map[string]any{"index": index, "value": newValue}
+// EditAPIKey replaces an API key by stable id, falling back to index when id is empty.
+func (c *Client) EditAPIKey(id string, index int, newValue string) error {
+	body := map[string]any{"value": map[string]any{"api-key": newValue}}
+	if strings.TrimSpace(id) != "" {
+		body["id"] = strings.TrimSpace(id)
+	} else {
+		body["index"] = index
+	}
 	jsonBody, _ := json.Marshal(body)
 	_, err := c.patch("/v0/management/api-keys", strings.NewReader(string(jsonBody)))
 	return err
 }
 
-// DeleteAPIKey deletes an API key by index.
-func (c *Client) DeleteAPIKey(index int) error {
-	_, code, err := c.doRequest("DELETE", fmt.Sprintf("/v0/management/api-keys?index=%d", index), nil)
+// EditAPIKeyName updates an API key display name by stable id, falling back to index when id is empty.
+func (c *Client) EditAPIKeyName(id string, index int, name string) error {
+	body := map[string]any{"value": map[string]any{"name": name}}
+	if strings.TrimSpace(id) != "" {
+		body["id"] = strings.TrimSpace(id)
+	} else {
+		body["index"] = index
+	}
+	jsonBody, _ := json.Marshal(body)
+	_, err := c.patch("/v0/management/api-keys", strings.NewReader(string(jsonBody)))
+	return err
+}
+
+// DeleteAPIKey deletes an API key by stable id, falling back to index when id is empty.
+func (c *Client) DeleteAPIKey(id string, index int) error {
+	query := url.Values{}
+	if strings.TrimSpace(id) != "" {
+		query.Set("id", strings.TrimSpace(id))
+	} else {
+		query.Set("index", strconv.Itoa(index))
+	}
+	_, code, err := c.doRequest("DELETE", "/v0/management/api-keys?"+query.Encode(), nil)
 	if err != nil {
 		return err
 	}

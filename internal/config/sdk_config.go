@@ -299,6 +299,19 @@ type SDKConfig struct {
 	// NonStreamKeepAliveInterval controls how often blank lines are emitted for non-streaming responses.
 	// <= 0 disables keep-alives. Value is in seconds.
 	NonStreamKeepAliveInterval int `yaml:"nonstream-keepalive-interval,omitempty" json:"nonstream-keepalive-interval,omitempty"`
+
+	// Analytics configures the local SQLite usage analytics and quota tracking store.
+	Analytics AnalyticsConfig `yaml:"analytics,omitempty" json:"analytics,omitempty"`
+}
+
+// AnalyticsConfig controls the local SQLite usage analytics store.
+type AnalyticsConfig struct {
+	// Enabled turns on per-request usage logging and hourly quota polling.
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// RawLogRetentionDays controls how many days of raw per-request logs are kept before deletion.
+	// Hourly aggregates are retained indefinitely. Default is 7.
+	RawLogRetentionDays int `yaml:"raw-log-retention-days" json:"raw-log-retention-days"`
 }
 
 // StreamingConfig holds server streaming behavior configuration.

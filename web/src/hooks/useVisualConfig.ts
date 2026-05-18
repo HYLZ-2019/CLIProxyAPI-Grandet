@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useReducer } from 'react';
 import { isMap, parse as parseYaml, parseDocument } from 'yaml';
 import type {
+  ClientAPIKeyEntry,
   PayloadFilterRule,
   PayloadParamEntry,
   PayloadParamValueType,
@@ -9,59 +10,61 @@ import type {
   VisualConfigValidationErrors,
   PayloadParamValidationErrorCode,
 } from '@/types/visualConfig';
-import { DEFAULT_VISUAL_VALUES } from '@/types/visualConfig';
+import { DEFAULT_VISUAL_VALUES, makeClientId } from '@/types/visualConfig';
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
 }
 
-function extractApiKeyValue(raw: unknown): string | null {
+function parseOptionalString(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const trimmed = String(value).trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeClientAPIKeyEntry(raw: unknown): ClientAPIKeyEntry | null {
   if (typeof raw === 'string') {
-    const trimmed = raw.trim();
-    return trimmed ? trimmed : null;
+    const apiKey = raw.trim();
+    return apiKey ? { apiKey, clientId: makeClientId() } : null;
   }
 
   const record = asRecord(raw);
   if (!record) return null;
 
-  const candidates = [record['api-key'], record.apiKey, record.key, record.Key];
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string') {
-      const trimmed = candidate.trim();
-      if (trimmed) return trimmed;
-    }
-  }
+  const apiKey = parseOptionalString(record['api-key'] ?? record.apiKey ?? record.key ?? record.Key);
+  if (!apiKey) return null;
 
-  return null;
+  const entry: ClientAPIKeyEntry = { apiKey, clientId: makeClientId() };
+  const id = parseOptionalString(record.id ?? record.ID);
+  const name = parseOptionalString(record.name ?? record.Name);
+  if (id) entry.id = id;
+  if (name) entry.name = name;
+  return entry;
 }
 
-function parseApiKeysText(raw: unknown): string {
-  if (!Array.isArray(raw)) return '';
-
-  const keys: string[] = [];
-  for (const item of raw) {
-    const key = extractApiKeyValue(item);
-    if (key) keys.push(key);
-  }
-  return keys.join('\n');
+function parseClientAPIKeyEntries(raw: unknown): ClientAPIKeyEntry[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => normalizeClientAPIKeyEntry(item))
+    .filter((entry): entry is ClientAPIKeyEntry => Boolean(entry));
 }
 
-function resolveApiKeysText(parsed: Record<string, unknown>): string {
+function resolveClientAPIKeyEntries(parsed: Record<string, unknown>): ClientAPIKeyEntry[] {
   if (Object.prototype.hasOwnProperty.call(parsed, 'api-keys')) {
-    return parseApiKeysText(parsed['api-keys']);
+    return parseClientAPIKeyEntries(parsed['api-keys']);
   }
 
   const auth = asRecord(parsed.auth);
   const providers = asRecord(auth?.providers);
   const configApiKeyProvider = asRecord(providers?.['config-api-key']);
-  if (!configApiKeyProvider) return '';
+  if (!configApiKeyProvider) return [];
 
   if (Object.prototype.hasOwnProperty.call(configApiKeyProvider, 'api-key-entries')) {
-    return parseApiKeysText(configApiKeyProvider['api-key-entries']);
+    return parseClientAPIKeyEntries(configApiKeyProvider['api-key-entries']);
   }
 
-  return parseApiKeysText(configApiKeyProvider['api-keys']);
+  return parseClientAPIKeyEntries(configApiKeyProvider['api-keys']);
 }
 
 type YamlDocument = ReturnType<typeof parseDocument>;
@@ -277,6 +280,21 @@ function arePayloadFilterRulesEqual(
   return true;
 }
 
+function areClientAPIKeyEntriesEqual(
+  left: ClientAPIKeyEntry[],
+  right: ClientAPIKeyEntry[]
+): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i];
+    const b = right[i];
+    if (!a || !b) return false;
+    if (a.id !== b.id || a.name !== b.name || a.apiKey !== b.apiKey) return false;
+  }
+  return true;
+}
+
 function parsePayloadParamValue(raw: unknown): { valueType: PayloadParamValueType; value: string } {
   if (typeof raw === 'number') {
     return { valueType: 'number', value: String(raw) };
@@ -324,6 +342,71 @@ function deleteLegacyApiKeysProvider(doc: YamlDocument): void {
   deleteIfMapEmpty(doc, ['auth', 'providers', 'config-api-key']);
   deleteIfMapEmpty(doc, ['auth', 'providers']);
   deleteIfMapEmpty(doc, ['auth']);
+}
+
+function parsePositiveInteger(value: unknown): number | undefined {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function serializeClientAPIKeysForYaml(
+  entries: ClientAPIKeyEntry[],
+  doc: YamlDocument
+): Array<Record<string, string>> {
+  const records = entries
+    .map((entry) => {
+      const apiKey = entry.apiKey.trim();
+      if (!apiKey) return null;
+      const record: Record<string, string> = {};
+      const id = entry.id?.trim();
+      const name = entry.name?.trim();
+      if (id) record.id = id;
+      if (name) record.name = name;
+      record['api-key'] = apiKey;
+      return record;
+    })
+    .filter((entry): entry is Record<string, string> => Boolean(entry));
+
+  const usedNumericIds = new Set<number>();
+  let maxNumericId = 0;
+  for (const record of records) {
+    const numericId = parsePositiveInteger(record.id);
+    if (!numericId) continue;
+    usedNumericIds.add(numericId);
+    maxNumericId = Math.max(maxNumericId, numericId);
+  }
+
+  const existingNextID = parsePositiveInteger(doc.getIn(['api-keys-next-id'])) ?? 0;
+  let nextID = Math.max(existingNextID, maxNumericId + 1, 1);
+  let allocated = false;
+
+  for (const record of records) {
+    if (record.id?.trim()) continue;
+    while (usedNumericIds.has(nextID)) nextID += 1;
+    record.id = String(nextID);
+    usedNumericIds.add(nextID);
+    maxNumericId = Math.max(maxNumericId, nextID);
+    nextID += 1;
+    allocated = true;
+  }
+
+  const desiredNextID = Math.max(existingNextID, maxNumericId + 1, nextID);
+  if (records.length > 0 && (allocated || desiredNextID > existingNextID)) {
+    doc.setIn(['api-keys-next-id'], desiredNextID);
+  }
+
+  return records;
+}
+
+function applyAuthChangesToDoc(doc: YamlDocument, values: VisualConfigValues): void {
+  setStringInDoc(doc, ['auth-dir'], values.authDir);
+  const apiKeys = serializeClientAPIKeysForYaml(values.apiKeys, doc);
+  if (apiKeys.length > 0) {
+    doc.setIn(['api-keys'], apiKeys);
+  } else if (docHas(doc, ['api-keys'])) {
+    doc.deleteIn(['api-keys']);
+  }
+  deleteLegacyApiKeysProvider(doc);
 }
 
 function parsePayloadRules(rules: unknown): PayloadRule[] {
@@ -596,8 +679,8 @@ function getNextDirtyFields(
   if (Object.prototype.hasOwnProperty.call(patch, 'authDir')) {
     updateDirty('authDir', nextValues.authDir === baselineValues.authDir);
   }
-  if (Object.prototype.hasOwnProperty.call(patch, 'apiKeysText')) {
-    updateDirty('apiKeysText', nextValues.apiKeysText === baselineValues.apiKeysText);
+  if (Object.prototype.hasOwnProperty.call(patch, 'apiKeys')) {
+    updateDirty('apiKeys', areClientAPIKeyEntriesEqual(nextValues.apiKeys, baselineValues.apiKeys));
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'debug')) {
     updateDirty('debug', nextValues.debug === baselineValues.debug);
@@ -729,6 +812,15 @@ function getNextDirtyFields(
       );
     }
   }
+  if (Object.prototype.hasOwnProperty.call(patch, 'analyticsEnabled')) {
+    updateDirty('analyticsEnabled', nextValues.analyticsEnabled === baselineValues.analyticsEnabled);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'analyticsRetentionDays')) {
+    updateDirty(
+      'analyticsRetentionDays',
+      nextValues.analyticsRetentionDays === baselineValues.analyticsRetentionDays
+    );
+  }
 
   return nextDirtyFields;
 }
@@ -834,7 +926,7 @@ export function useVisualConfig() {
               : '',
 
         authDir: typeof parsed['auth-dir'] === 'string' ? parsed['auth-dir'] : '',
-        apiKeysText: resolveApiKeysText(parsed),
+        apiKeys: resolveClientAPIKeyEntries(parsed),
 
         debug: Boolean(parsed.debug),
         commercialMode: Boolean(parsed['commercial-mode']),
@@ -878,6 +970,11 @@ export function useVisualConfig() {
           bootstrapRetries: String(streaming?.['bootstrap-retries'] ?? ''),
           nonstreamKeepaliveInterval: String(parsed['nonstream-keepalive-interval'] ?? ''),
         },
+
+        analyticsEnabled: Boolean((parsed['analytics'] as Record<string, unknown>)?.['enabled']),
+        analyticsRetentionDays: String(
+          (parsed['analytics'] as Record<string, unknown>)?.['raw-log-retention-days'] ?? ''
+        ),
       };
 
       dispatch({ type: 'load_success', values: newValues });
@@ -936,18 +1033,6 @@ export function useVisualConfig() {
           }
           deleteIfMapEmpty(doc, ['remote-management']);
         }
-
-        setStringInDoc(doc, ['auth-dir'], values.authDir);
-        const apiKeys = values.apiKeysText
-          .split('\n')
-          .map((key) => key.trim())
-          .filter(Boolean);
-        if (apiKeys.length > 0) {
-          doc.setIn(['api-keys'], apiKeys);
-        } else if (docHas(doc, ['api-keys'])) {
-          doc.deleteIn(['api-keys']);
-        }
-        deleteLegacyApiKeysProvider(doc);
 
         setBooleanInDoc(doc, ['debug'], values.debug);
 
@@ -1084,12 +1169,42 @@ export function useVisualConfig() {
           deleteIfMapEmpty(doc, ['payload']);
         }
 
+        if (dirtyFields.has('analyticsEnabled') || dirtyFields.has('analyticsRetentionDays')) {
+          if (values.analyticsEnabled || docHas(doc, ['analytics'])) {
+            ensureMapInDoc(doc, ['analytics']);
+            setBooleanInDoc(doc, ['analytics', 'enabled'], values.analyticsEnabled);
+            setIntFromStringInDoc(
+              doc,
+              ['analytics', 'raw-log-retention-days'],
+              values.analyticsRetentionDays
+            );
+            deleteIfMapEmpty(doc, ['analytics']);
+          }
+        }
+
         return doc.toString({ indent: 2, lineWidth: 120, minContentWidth: 0 });
       } catch {
         return currentYaml;
       }
     },
     [dirtyFields, visualValues]
+  );
+
+  const applyAuthChangesToYaml = useCallback(
+    (currentYaml: string): string => {
+      try {
+        const doc = parseDocument(currentYaml);
+        if (doc.errors.length > 0) return currentYaml;
+        if (!isMap(doc.contents)) {
+          doc.contents = doc.createNode({}) as unknown as typeof doc.contents;
+        }
+        applyAuthChangesToDoc(doc, visualValues);
+        return doc.toString({ indent: 2, lineWidth: 120, minContentWidth: 0 });
+      } catch {
+        return currentYaml;
+      }
+    },
+    [visualValues]
   );
 
   const setVisualValues = useCallback((newValues: Partial<VisualConfigValues>) => {
@@ -1104,6 +1219,7 @@ export function useVisualConfig() {
     visualHasPayloadValidationErrors,
     loadVisualValuesFromYaml,
     applyVisualChangesToYaml,
+    applyAuthChangesToYaml,
     setVisualValues,
   };
 }

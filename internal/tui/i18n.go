@@ -149,17 +149,20 @@ var zhStrings = map[string]string{
 
 	// ── API Keys ──
 	"keys_title":         "🔐 API 密钥",
-	"keys_help":          " [↑↓/jk] 导航 • [a] 添加 • [e] 编辑 • [d] 删除 • [c] 复制 • [r] 刷新",
+	"keys_help":          " [↑↓/jk] 导航 • [a] 添加 • [e] 编辑密钥 • [n] 编辑名称 • [d] 删除 • [c] 复制 • [r] 刷新",
 	"no_keys":            "  无 API Key，按 [a] 添加",
 	"access_keys":        "Access API Keys",
 	"confirm_delete_key": "⚠ 确认删除 %s? [y/n]",
 	"key_added":          "已添加 API Key",
 	"key_updated":        "已更新 API Key",
+		"key_name_updated":   "已更新 API Key 名称",
 	"key_deleted":        "已删除 API Key",
 	"copied":             "✓ 已复制到剪贴板",
 	"copy_failed":        "✗ 复制失败",
 	"new_key_prompt":     "  New Key: ",
 	"edit_key_prompt":    "  Edit Key: ",
+		"edit_name_prompt":   "  Edit Name: ",
+		"unnamed_key":        "未命名",
 	"enter_add":          "    Enter: 添加 • Esc: 取消",
 	"enter_save_esc":     "    Enter: 保存 • Esc: 取消",
 
@@ -301,17 +304,20 @@ var enStrings = map[string]string{
 
 	// ── API Keys ──
 	"keys_title":         "🔐 API Keys",
-	"keys_help":          " [↑↓/jk] Navigate • [a] Add • [e] Edit • [d] Delete • [c] Copy • [r] Refresh",
+	"keys_help":          " [↑↓/jk] Navigate • [a] Add • [e] Edit key • [n] Edit name • [d] Delete • [c] Copy • [r] Refresh",
 	"no_keys":            "  No API Keys. Press [a] to add",
 	"access_keys":        "Access API Keys",
 	"confirm_delete_key": "⚠ Delete %s? [y/n]",
 	"key_added":          "API Key added",
 	"key_updated":        "API Key updated",
+		"key_name_updated":   "API Key name updated",
 	"key_deleted":        "API Key deleted",
 	"copied":             "✓ Copied to clipboard",
 	"copy_failed":        "✗ Copy failed",
 	"new_key_prompt":     "  New Key: ",
 	"edit_key_prompt":    "  Edit Key: ",
+		"edit_name_prompt":   "  Edit Name: ",
+		"unnamed_key":        "unnamed",
 	"enter_add":          "    Enter: Add • Esc: Cancel",
 	"enter_save_esc":     "    Enter: Save • Esc: Cancel",
 

@@ -5,10 +5,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: $spacing-sm;
+  gap: 6px;
   border: 1px solid transparent;
   border-radius: $radius-md;
-  padding: 10px 14px;
+  padding: 8px 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all $transition-fast;
@@ -63,8 +63,8 @@
   }
 
   &.btn-sm {
-    padding: 8px 10px;
-    font-size: 14px;
+    padding: 6px 9px;
+    font-size: 13px;
   }
 
   &:disabled {
@@ -89,7 +89,7 @@ textarea {
   width: 100%;
   border: 1px solid var(--border-color);
   border-radius: $radius-md;
-  padding: 10px 12px;
+  padding: 8px 10px;
   background-color: var(--bg-secondary);
   color: var(--text-primary);
   transition: border-color $transition-fast, box-shadow $transition-fast;
@@ -123,7 +123,7 @@ textarea {
   border: 1px solid var(--border-color);
   border-radius: $radius-lg;
   box-shadow: var(--shadow);
-  padding: $spacing-lg;
+  padding: $spacing-md;
 }
 
 .card-header {
@@ -377,7 +377,7 @@ textarea {
   align-items: center;
   justify-content: center;
   z-index: $z-modal;
-  padding: $spacing-lg;
+  padding: $spacing-md;
 
   &.modal-overlay-entering {
     animation: modal-overlay-fade-in 0.25s ease-out forwards;
@@ -510,7 +510,7 @@ textarea {
 }
 
 .modal-body {
-  padding: $spacing-lg;
+  padding: $spacing-md;
   overflow: auto;
   max-height: 65vh;
 }
@@ -581,7 +581,7 @@ textarea {
 .empty-state {
   border: 1px dashed var(--border-color);
   border-radius: $radius-lg;
-  padding: $spacing-lg;
+  padding: $spacing-md;
   background: var(--bg-secondary);
   display: flex;
   justify-content: space-between;
@@ -693,7 +693,7 @@ textarea {
 .stack {
   display: flex;
   flex-direction: column;
-  gap: $spacing-lg;
+  gap: $spacing-md;
 }
 
 .filters {
