@@ -199,7 +199,7 @@ type RemoteManagement struct {
 	// DisableControlPanel skips serving and syncing the bundled management UI when true.
 	DisableControlPanel bool `yaml:"disable-control-panel"`
 	// DisableAutoUpdatePanel disables automatic periodic background updates of the management panel asset from GitHub.
-	// When false (the default), the background updater remains enabled; when true, the panel is only downloaded on first access if missing.
+	// Defaults to true in Grandet so the bundled management panel is not overwritten by upstream releases.
 	DisableAutoUpdatePanel bool `yaml:"disable-auto-update-panel"`
 	// PanelGitHubRepository overrides the GitHub repository used to fetch the management panel asset.
 	// Accepts either a repository URL (https://github.com/org/repo) or an API releases endpoint.
@@ -630,6 +630,7 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	cfg.Pprof.Enable = false
 	cfg.Pprof.Addr = DefaultPprofAddr
 	cfg.AmpCode.RestrictManagementToLocalhost = false // Default to false: API key auth is sufficient
+	cfg.RemoteManagement.DisableAutoUpdatePanel = true
 	cfg.RemoteManagement.PanelGitHubRepository = DefaultPanelGitHubRepository
 	if err = yaml.Unmarshal(data, &cfg); err != nil {
 		if optional {

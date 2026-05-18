@@ -38,6 +38,7 @@ port: 8317
 
 remote-management:
   secret-key: "your-management-secret"
+  disable-auto-update-panel: true
 
 api-keys:
   - name: "default"
@@ -54,9 +55,19 @@ analytics:
 
 ### 2. 启动 Docker Compose
 
+Docker 构建会同时构建 Go 后端和 `web/` 前端，并把 Grandet 管理面板内置到镜像的 `/CLIProxyAPI/static/management.html`。如果你是从旧版本升级，建议先停掉旧容器再强制重建：
+
 ```bash
 mkdir -p auths logs data
-docker compose up -d --build
+docker compose down
+docker compose up -d --build --force-recreate
+```
+
+如果服务器使用旧版 Compose 命令，则改用：
+
+```bash
+sudo docker-compose down
+sudo docker-compose up -d --build --force-recreate
 ```
 
 查看日志：
@@ -80,7 +91,7 @@ docker compose down
 | 日志 | `./logs` | `/CLIProxyAPI/logs` | `CLI_PROXY_LOG_PATH` |
 | Analytics 数据 | `./data` | `/CLIProxyAPI/data` | `CLI_PROXY_DATA_PATH` |
 
-启动后默认服务端口是 `8317`。管理面板入口沿用 CLIProxyAPI 的管理面板入口；如果你的配置允许远程管理，可用浏览器访问对应地址并输入 `remote-management.secret-key`。
+启动后默认服务端口是 `8317`。管理面板入口沿用 CLIProxyAPI 的管理面板入口；如果你的配置允许远程管理，可用浏览器访问对应地址并输入 `remote-management.secret-key`。如果页面仍显示原版面板，请确认 `config.yaml` 里设置了 `remote-management.disable-auto-update-panel: true`，并在浏览器中强制刷新或使用无痕窗口。
 
 ### 3. 本机直接运行（可选）
 
@@ -181,6 +192,7 @@ CLI_PROXY_DATA_PATH=/opt/CLIProxyAPI-Grandet/data
 ```yaml
 remote-management:
   secret-key: "不要留空，否则管理 API / Web 面板不可用"
+  disable-auto-update-panel: true
 
 auth-dir: "/root/.cli-proxy-api"  # Docker 部署时建议与 compose 容器内挂载路径一致
 ```
@@ -211,7 +223,8 @@ api-keys:
 ### 5. 启动本项目
 
 ```bash
-docker compose up -d --build
+docker compose down
+docker compose up -d --build --force-recreate
 docker compose logs -f
 ```
 

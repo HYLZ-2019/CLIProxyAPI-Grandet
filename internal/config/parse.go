@@ -29,6 +29,7 @@ func ParseConfigBytes(data []byte) (*Config, error) {
 	cfg.Pprof.Enable = false
 	cfg.Pprof.Addr = DefaultPprofAddr
 	cfg.AmpCode.RestrictManagementToLocalhost = false // Default to false: API key auth is sufficient
+	cfg.RemoteManagement.DisableAutoUpdatePanel = true
 	cfg.RemoteManagement.PanelGitHubRepository = DefaultPanelGitHubRepository
 
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
