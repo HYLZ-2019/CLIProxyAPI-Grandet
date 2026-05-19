@@ -12,6 +12,8 @@ logs/*
 conv/*
 temp/*
 refs/*
+data/*
+fetch_antigravity_models
 
 # Storage backends
 pgstore/*
