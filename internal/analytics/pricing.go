@@ -16,6 +16,7 @@ const (
 
 type TokenDimension struct {
 	Provider  string
+	AuthID    string
 	Model     string
 	TokenType string
 }
@@ -23,6 +24,7 @@ type TokenDimension struct {
 type TokenPriceRow struct {
 	PriceDate             string   `json:"price_date"`
 	Provider              string   `json:"provider"`
+	AuthID                string   `json:"auth_id"`
 	Model                 string   `json:"model"`
 	TokenType             string   `json:"token_type"`
 	PricePointsPerMillion *float64 `json:"price_points_per_million"`
@@ -35,11 +37,32 @@ type TokenPriceRow struct {
 	SolvedAt              int64    `json:"solved_at"`
 }
 
+type TokenPriceSolveProviderResult struct {
+	Provider       string `json:"provider"`
+	AuthID         string `json:"auth_id"`
+	Status         string `json:"status"`
+	Message        string `json:"message"`
+	DimensionCount int    `json:"dimension_count"`
+	EquationCount  int    `json:"equation_count"`
+	RowCount       int    `json:"row_count"`
+}
+
+type TokenPriceSolveResponse struct {
+	PriceDate string                          `json:"price_date"`
+	Status    string                          `json:"status"`
+	Message   string                          `json:"message"`
+	Rows      []TokenPriceRow                 `json:"rows"`
+	Providers []TokenPriceSolveProviderResult `json:"providers"`
+}
+
 type ProviderQuotaLinePoint struct {
 	HourTS                   int64   `json:"hour_ts"`
+	BucketTS                 int64   `json:"bucket_ts,omitempty"`
+	BucketSeconds            int64   `json:"bucket_seconds,omitempty"`
 	QuotaRemainingPoints     float64 `json:"quota_remaining_points"`
 	QuotaRemainingPercent    float64 `json:"quota_remaining_percent"`
 	QuotaUsedPercent         float64 `json:"quota_used_percent"`
+	QuotaUsedPoints          float64 `json:"quota_used_points"`
 	CLIProxyHourPoints       float64 `json:"cliproxy_hour_points"`
 	CLIProxyCumulativePoints float64 `json:"cliproxy_cumulative_points"`
 	QuotaEventsCount         int64   `json:"quota_events_count"`
@@ -52,6 +75,7 @@ type ProviderQuotaResetMarker struct {
 
 type ProviderQuotaSeries struct {
 	Provider                           string                     `json:"provider"`
+	AuthID                             string                     `json:"auth_id"`
 	WindowType                         string                     `json:"window_type"`
 	PriceDate                          string                     `json:"price_date"`
 	MostExpensivePricePointsPerMillion float64                    `json:"most_expensive_price_points_per_million"`
@@ -64,10 +88,21 @@ type ProviderQuotaLinesResponse struct {
 	Series []ProviderQuotaSeries `json:"series"`
 }
 
+type quotaSeriesKey struct {
+	provider string
+	authID   string
+}
+
+type priceSolveKey struct {
+	provider string
+	authID   string
+}
+
 type quotaEquation struct {
 	provider string
 	authID   string
-	hourTS   int64
+	fromTS   int64
+	toTS     int64
 	features []float64
 	target   float64
 }
@@ -81,35 +116,78 @@ type solveResult struct {
 }
 
 func (s *Store) SolveTokenPricesForDate(date time.Time) error {
-	if s == nil {
-		return nil
-	}
-	priceDate := date.Format("2006-01-02")
-	dayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
-	usedFrom := dayStart.Add(-24 * time.Hour).Unix()
-	usedTo := dayStart.Unix()
-	if usedTo <= 0 {
-		usedTo = time.Now().Unix()
-	}
-	dims, err := s.usedTokenDimensions(usedFrom, usedTo)
-	if err != nil {
-		return err
-	}
-	byProvider := map[string][]TokenDimension{}
-	for _, dim := range dims {
-		byProvider[dim.Provider] = append(byProvider[dim.Provider], dim)
-	}
-	for provider, providerDims := range byProvider {
-		if err := s.solveProviderPrices(priceDate, provider, providerDims, usedTo); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := s.SolveTokenPricesForDateWithResult(date)
+	return err
 }
 
-func (s *Store) solveProviderPrices(priceDate, provider string, dims []TokenDimension, toTS int64) error {
+func tokenPriceSourceWindow(date time.Time) (int64, int64) {
+	now := time.Now().In(date.Location())
+	dayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+	if now.Year() == date.Year() && now.YearDay() == date.YearDay() {
+		toTS := now.Unix()
+		return toTS - 24*60*60, toTS
+	}
+	return dayStart.Unix(), dayStart.Add(24 * time.Hour).Unix()
+}
+
+func (s *Store) SolveTokenPricesForDateWithResult(date time.Time) (*TokenPriceSolveResponse, error) {
+	priceDate := date.Format("2006-01-02")
+	resp := &TokenPriceSolveResponse{PriceDate: priceDate, Status: "no_token_usage", Message: tokenPriceSolveMessage("no_token_usage")}
+	if s == nil {
+		resp.Rows = []TokenPriceRow{}
+		return resp, nil
+	}
+	usedFrom, usedTo := tokenPriceSourceWindow(date)
+	dims, err := s.usedTokenDimensions(usedFrom, usedTo)
+	if err != nil {
+		return nil, err
+	}
 	if len(dims) == 0 {
-		return nil
+		rows, err := s.TokenPrices(priceDate)
+		if err != nil {
+			return nil, err
+		}
+		if rows == nil {
+			rows = []TokenPriceRow{}
+		}
+		resp.Rows = rows
+		return resp, nil
+	}
+	byScope := map[priceSolveKey][]TokenDimension{}
+	for _, dim := range dims {
+		key := priceSolveKey{provider: dim.Provider, authID: dim.AuthID}
+		byScope[key] = append(byScope[key], dim)
+	}
+	for key, scopeDims := range byScope {
+		result, err := s.solveProviderAuthPrices(priceDate, key.provider, key.authID, scopeDims, usedTo)
+		if err != nil {
+			return nil, err
+		}
+		resp.Providers = append(resp.Providers, result)
+	}
+	sort.Slice(resp.Providers, func(i, j int) bool {
+		if resp.Providers[i].Provider == resp.Providers[j].Provider {
+			return resp.Providers[i].AuthID < resp.Providers[j].AuthID
+		}
+		return resp.Providers[i].Provider < resp.Providers[j].Provider
+	})
+	rows, err := s.TokenPrices(priceDate)
+	if err != nil {
+		return nil, err
+	}
+	if rows == nil {
+		rows = []TokenPriceRow{}
+	}
+	resp.Rows = rows
+	resp.Status = aggregateTokenPriceSolveStatus(resp.Providers)
+	resp.Message = tokenPriceSolveMessage(resp.Status)
+	return resp, nil
+}
+
+func (s *Store) solveProviderAuthPrices(priceDate, provider, authID string, dims []TokenDimension, toTS int64) (TokenPriceSolveProviderResult, error) {
+	result := TokenPriceSolveProviderResult{Provider: provider, AuthID: authID, Status: "no_token_usage", Message: tokenPriceSolveMessage("no_token_usage"), DimensionCount: len(dims)}
+	if len(dims) == 0 {
+		return result, nil
 	}
 	sort.Slice(dims, func(i, j int) bool {
 		if dims[i].Model == dims[j].Model {
@@ -118,72 +196,159 @@ func (s *Store) solveProviderPrices(priceDate, provider string, dims []TokenDime
 		return dims[i].Model < dims[j].Model
 	})
 	fromTS := toTS - 60*86400
-	windowType, err := s.chooseQuotaWindow(provider, fromTS, toTS)
+	windowType, err := s.chooseQuotaWindowForAuth(provider, authID, fromTS, toTS)
 	if err != nil {
-		return err
+		return result, err
 	}
-	equations, err := s.buildQuotaEquations(provider, windowType, dims, fromTS, toTS)
-	if err != nil {
-		return err
+	var solve solveResult
+	if windowType == "" {
+		solve = solveResult{status: "no_quota_snapshots"}
+	} else {
+		equations, err := s.buildQuotaEquationsForAuth(provider, authID, windowType, dims, fromTS, toTS)
+		if err != nil {
+			return result, err
+		}
+		solve = solveRobust(equations, len(dims))
 	}
-	result := solveRobust(equations, len(dims))
+	result.Status = solve.status
+	result.Message = tokenPriceSolveMessage(solve.status)
+	result.EquationCount = solve.equations
+	result.RowCount = len(dims)
 	now := time.Now().Unix()
 	for i, dim := range dims {
 		var price *float64
-		if result.status == "solved" && i < len(result.coefficients) {
-			v := result.coefficients[i]
+		if solve.status == "solved" && i < len(solve.coefficients) {
+			v := solve.coefficients[i]
 			price = &v
 		}
 		row := TokenPriceRow{
 			PriceDate:             priceDate,
 			Provider:              dim.Provider,
+			AuthID:                dim.AuthID,
 			Model:                 dim.Model,
 			TokenType:             dim.TokenType,
 			PricePointsPerMillion: price,
-			Status:                result.status,
-			EquationCount:         result.equations,
-			ResidualRMS:           result.rms,
-			ResidualMAD:           result.mad,
+			Status:                solve.status,
+			EquationCount:         solve.equations,
+			ResidualRMS:           solve.rms,
+			ResidualMAD:           solve.mad,
 			SourceFromTS:          fromTS,
 			SourceToTS:            toTS,
 			SolvedAt:              now,
 		}
 		if err := s.UpsertTokenPrice(row); err != nil {
-			return err
+			return result, err
 		}
 	}
-	return nil
+	return result, nil
+}
+
+func aggregateTokenPriceSolveStatus(providers []TokenPriceSolveProviderResult) string {
+	if len(providers) == 0 {
+		return "no_token_usage"
+	}
+	solved := 0
+	counts := map[string]int{}
+	for _, p := range providers {
+		if p.Status == "solved" {
+			solved++
+		}
+		counts[p.Status]++
+	}
+	if solved == len(providers) {
+		return "solved"
+	}
+	if solved > 0 {
+		return "partial"
+	}
+	for _, status := range []string{"no_quota_snapshots", "insufficient_equations", "rank_deficient", "low_confidence", "no_token_usage"} {
+		if counts[status] > 0 {
+			return status
+		}
+	}
+	return "insufficient_equations"
+}
+
+func tokenPriceSolveMessage(status string) string {
+	switch status {
+	case "solved":
+		return "Token prices solved."
+	case "partial":
+		return "Some providers were solved, but others need more data."
+	case "no_token_usage":
+		return "No token usage was found for the source window."
+	case "no_quota_snapshots":
+		return "No quota snapshots were found for the source window."
+	case "rank_deficient":
+		return "The available data points are not diverse enough to solve prices."
+	case "low_confidence":
+		return "The solve result has low confidence."
+	default:
+		return "Not enough data points to solve token prices."
+	}
 }
 
 func (s *Store) usedTokenDimensions(fromTS, toTS int64) ([]TokenDimension, error) {
-	rows, err := s.db.Query(`
-		SELECT provider, model,
-		       SUM(input_tokens_sum), SUM(output_tokens_sum), SUM(cached_tokens_sum)
-		FROM hourly_aggregates
-		WHERE hour_ts >= ? AND hour_ts < ? AND provider <> '' AND model <> ''
-		GROUP BY provider, model`, fromTS, toTS)
-	if err != nil {
-		return nil, err
+	dims := map[TokenDimension]struct{}{}
+	queries := []string{
+		`SELECT provider, auth_id, model,
+		        COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COALESCE(SUM(cached_tokens), 0)
+		 FROM query_logs
+		 WHERE ts >= ? AND ts < ? AND provider <> '' AND model <> ''
+		 GROUP BY provider, auth_id, model`,
+		`SELECT provider, auth_id, model,
+		        COALESCE(SUM(input_tokens_sum), 0), COALESCE(SUM(output_tokens_sum), 0), COALESCE(SUM(cached_tokens_sum), 0)
+		 FROM hourly_aggregates
+		 WHERE hour_ts >= ? AND hour_ts < ? AND provider <> '' AND model <> ''
+		 GROUP BY provider, auth_id, model`,
 	}
-	defer rows.Close()
-	var dims []TokenDimension
-	for rows.Next() {
-		var provider, model string
-		var input, output, cached int64
-		if err := rows.Scan(&provider, &model, &input, &output, &cached); err != nil {
+	for _, query := range queries {
+		rows, err := s.db.Query(query, fromTS, toTS)
+		if err != nil {
 			return nil, err
 		}
-		if input > 0 {
-			dims = append(dims, TokenDimension{Provider: provider, Model: model, TokenType: "input"})
+		for rows.Next() {
+			var provider, authID, model string
+			var input, output, cached int64
+			if err := rows.Scan(&provider, &authID, &model, &input, &output, &cached); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			if input > 0 {
+				dims[TokenDimension{Provider: provider, AuthID: authID, Model: model, TokenType: "input"}] = struct{}{}
+			}
+			if output > 0 {
+				dims[TokenDimension{Provider: provider, AuthID: authID, Model: model, TokenType: "output"}] = struct{}{}
+			}
+			if cached > 0 {
+				dims[TokenDimension{Provider: provider, AuthID: authID, Model: model, TokenType: "cached_input"}] = struct{}{}
+			}
 		}
-		if output > 0 {
-			dims = append(dims, TokenDimension{Provider: provider, Model: model, TokenType: "output"})
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
 		}
-		if cached > 0 {
-			dims = append(dims, TokenDimension{Provider: provider, Model: model, TokenType: "cached_input"})
+		if err := rows.Close(); err != nil {
+			return nil, err
 		}
 	}
-	return dims, nil
+	out := make([]TokenDimension, 0, len(dims))
+	for dim := range dims {
+		out = append(out, dim)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Provider == out[j].Provider {
+			if out[i].AuthID == out[j].AuthID {
+				if out[i].Model == out[j].Model {
+					return out[i].TokenType < out[j].TokenType
+				}
+				return out[i].Model < out[j].Model
+			}
+			return out[i].AuthID < out[j].AuthID
+		}
+		return out[i].Provider < out[j].Provider
+	})
+	return out, nil
 }
 
 func (s *Store) chooseQuotaWindow(provider string, fromTS, toTS int64) (string, error) {
@@ -195,139 +360,307 @@ func (s *Store) chooseQuotaWindow(provider string, fromTS, toTS int64) (string, 
 		return "", err
 	}
 	defer rows.Close()
-	latest := ""
-	var latestTS int64
+	return scanPreferredQuotaWindow(rows, "")
+}
+
+func (s *Store) chooseQuotaWindowForAuth(provider, authID string, fromTS, toTS int64) (string, error) {
+	return s.chooseQuotaWindowForAuthClass(provider, authID, fromTS, toTS, "")
+}
+
+// chooseQuotaWindowForAuthClass picks a window_type to use for an (provider, auth).
+// When windowClass is "5h" or "7d", windows that classify to that class are preferred;
+// if none match, it falls back to the unconstrained preference order.
+func (s *Store) chooseQuotaWindowForAuthClass(provider, authID string, fromTS, toTS int64, windowClass string) (string, error) {
+	rows, err := s.db.Query(`
+		SELECT window_type, MAX(ts) FROM quota_snapshots
+		WHERE provider = ? AND auth_id = ? AND ts >= ? AND ts < ?
+		GROUP BY window_type`, provider, authID, fromTS, toTS)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	return scanPreferredQuotaWindow(rows, windowClass)
+}
+
+func scanPreferredQuotaWindow(rows *sql.Rows, windowClass string) (string, error) {
+	type entry struct {
+		windowType string
+		ts         int64
+	}
+	var all []entry
 	for rows.Next() {
 		var wt string
 		var ts int64
 		if err := rows.Scan(&wt, &ts); err != nil {
 			return "", err
 		}
-		w := strings.TrimSpace(wt)
-		if strings.EqualFold(w, "weekly") {
-			return wt, nil
+		all = append(all, entry{windowType: wt, ts: ts})
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+
+	pick := func(candidates []entry) string {
+		latest := ""
+		var latestTS int64
+		for _, e := range candidates {
+			w := strings.TrimSpace(e.windowType)
+			if strings.EqualFold(w, "weekly") {
+				return e.windowType
+			}
+			if strings.EqualFold(w, "default") {
+				latest = e.windowType
+				latestTS = e.ts
+				continue
+			}
+			if latest == "" || e.ts > latestTS {
+				latest = e.windowType
+				latestTS = e.ts
+			}
 		}
-		if strings.EqualFold(w, "default") {
-			latest = wt
-			latestTS = ts
-			continue
+		return latest
+	}
+
+	if windowClass != "" {
+		var matched []entry
+		for _, e := range all {
+			if classifyQuotaWindow(e.windowType) == windowClass {
+				matched = append(matched, e)
+			}
 		}
-		if latest == "" || ts > latestTS {
-			latest = wt
-			latestTS = ts
+		if len(matched) > 0 {
+			return pick(matched), nil
 		}
 	}
-	return latest, nil
+	return pick(all), nil
 }
 
-func (s *Store) buildQuotaEquations(provider, windowType string, dims []TokenDimension, fromTS, toTS int64) ([]quotaEquation, error) {
+// classifyQuotaWindow groups a window_type into "5h" (five-hour limits) or "7d"
+// (seven-day / weekly limits). Returns "" for provider-specific windows that don't
+// fit either bucket (e.g. Gemini-CLI's per-model "<model>:REQUESTS" windows).
+func classifyQuotaWindow(windowType string) string {
+	wt := strings.ToLower(strings.TrimSpace(windowType))
+	if wt == "" {
+		return ""
+	}
+	if strings.Contains(wt, "five_hour") || strings.Contains(wt, "fivehour") || strings.Contains(wt, "five-hour") {
+		return "5h"
+	}
+	if strings.Contains(wt, "seven_day") || strings.Contains(wt, "sevenday") || strings.Contains(wt, "seven-day") || strings.Contains(wt, "weekly") {
+		return "7d"
+	}
+	return ""
+}
+
+func (s *Store) buildQuotaEquationsForAuth(provider, authID, windowType string, dims []TokenDimension, fromTS, toTS int64) ([]quotaEquation, error) {
 	if windowType == "" {
 		return nil, nil
 	}
 	rows, err := s.db.Query(`
-		SELECT ts, auth_id, used_percent
+		SELECT ts, used_percent
 		FROM quota_snapshots
-		WHERE provider = ? AND window_type = ? AND ts >= ? AND ts < ?
-		ORDER BY auth_id, ts`, provider, windowType, fromTS, toTS)
+		WHERE provider = ? AND auth_id = ? AND window_type = ? AND ts >= ? AND ts < ?
+		ORDER BY ts`, provider, authID, windowType, fromTS, toTS)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	type snap struct {
-		ts     int64
-		authID string
-		used   float64
+		ts   int64
+		used float64
 	}
-	byAuth := map[string][]snap{}
+	var snaps []snap
 	for rows.Next() {
 		var srow snap
-		if err := rows.Scan(&srow.ts, &srow.authID, &srow.used); err != nil {
+		if err := rows.Scan(&srow.ts, &srow.used); err != nil {
 			return nil, err
 		}
-		byAuth[srow.authID] = append(byAuth[srow.authID], srow)
+		snaps = append(snaps, srow)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	var equations []quotaEquation
-	for authID, snaps := range byAuth {
-		for i := 0; i+1 < len(snaps); i++ {
-			a := normalizeUsedFraction(snaps[i].used)
-			b := normalizeUsedFraction(snaps[i+1].used)
-			if b <= a {
-				continue
-			}
-			hourTS := snaps[i].ts - snaps[i].ts%3600
-			features, err := s.hourlyFeatures(provider, authID, hourTS, dims)
-			if err != nil {
-				return nil, err
-			}
-			if sumFloat(features) == 0 {
-				continue
-			}
-			equations = append(equations, quotaEquation{
-				provider: provider,
-				authID:   authID,
-				hourTS:   hourTS,
-				features: features,
-				target:   (b - a) * quotaPointsFull,
-			})
+	for i := 0; i+1 < len(snaps); i++ {
+		a := normalizeUsedFraction(snaps[i].used)
+		b := normalizeUsedFraction(snaps[i+1].used)
+		if b <= a {
+			continue
 		}
+		startTS := snaps[i].ts
+		endTS := snaps[i+1].ts
+		if endTS <= startTS {
+			continue
+		}
+		features, err := s.intervalFeatures(provider, authID, startTS, endTS, dims)
+		if err != nil {
+			return nil, err
+		}
+		if sumFloat(features) == 0 {
+			continue
+		}
+		equations = append(equations, quotaEquation{
+			provider: provider,
+			authID:   authID,
+			fromTS:   startTS,
+			toTS:     endTS,
+			features: features,
+			target:   (b - a) * quotaPointsFull,
+		})
 	}
-	sort.Slice(equations, func(i, j int) bool { return equations[i].hourTS > equations[j].hourTS })
+	sort.Slice(equations, func(i, j int) bool { return equations[i].fromTS > equations[j].fromTS })
 	if len(equations) > 500 {
 		equations = equations[:500]
 	}
 	return equations, nil
 }
 
-func (s *Store) hourlyFeatures(provider, authID string, hourTS int64, dims []TokenDimension) ([]float64, error) {
-	features, err := s.hourlyFeaturesForAuth(provider, authID, hourTS, dims)
+func (s *Store) intervalFeatures(provider, authID string, fromTS, toTS int64, dims []TokenDimension) ([]float64, error) {
+	features, rowCount, err := s.queryLogIntervalFeaturesForAuth(provider, authID, fromTS, toTS, dims)
+	if err != nil || rowCount > 0 || authID == "" {
+		return features, err
+	}
+	features, rowCount, err = s.queryLogIntervalFeaturesForAuth(provider, "", fromTS, toTS, dims)
+	if err != nil || rowCount > 0 {
+		return features, err
+	}
+	if s.rawLogsMayCover(fromTS) {
+		return features, nil
+	}
+	features, err = s.hourlyIntervalFeaturesForAuth(provider, authID, fromTS, toTS, dims)
 	if err != nil || sumFloat(features) > 0 || authID == "" {
 		return features, err
 	}
-	return s.hourlyFeaturesForAuth(provider, "", hourTS, dims)
+	return s.hourlyIntervalFeaturesForAuth(provider, "", fromTS, toTS, dims)
 }
 
-func (s *Store) hourlyFeaturesForAuth(provider, authID string, hourTS int64, dims []TokenDimension) ([]float64, error) {
-	features := make([]float64, len(dims))
+func (s *Store) queryLogIntervalFeaturesForAuth(provider, authID string, fromTS, toTS int64, dims []TokenDimension) ([]float64, int64, error) {
 	var rows *sql.Rows
 	var err error
 	if authID == "" {
 		rows, err = s.db.Query(`
-			SELECT model, SUM(input_tokens_sum), SUM(output_tokens_sum), SUM(cached_tokens_sum)
-			FROM hourly_aggregates
-			WHERE provider = ? AND hour_ts = ?
-			GROUP BY model`, provider, hourTS)
+			SELECT model, SUM(input_tokens), SUM(output_tokens), SUM(cached_tokens), COUNT(*)
+			FROM query_logs
+			WHERE provider = ? AND ts >= ? AND ts < ?
+			GROUP BY model`, provider, fromTS, toTS)
 	} else {
 		rows, err = s.db.Query(`
-			SELECT model, SUM(input_tokens_sum), SUM(output_tokens_sum), SUM(cached_tokens_sum)
+			SELECT model, SUM(input_tokens), SUM(output_tokens), SUM(cached_tokens), COUNT(*)
+			FROM query_logs
+			WHERE provider = ? AND auth_id = ? AND ts >= ? AND ts < ?
+			GROUP BY model`, provider, authID, fromTS, toTS)
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	sums := map[string]tokenFeatureSums{}
+	var rowCount int64
+	for rows.Next() {
+		var model string
+		var input, output, cached, count int64
+		if err := rows.Scan(&model, &input, &output, &cached, &count); err != nil {
+			return nil, 0, err
+		}
+		sums[model] = tokenFeatureSums{input: float64(input), output: float64(output), cached: float64(cached)}
+		rowCount += count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return tokenFeaturesFromSums(sums, dims), rowCount, nil
+}
+
+func (s *Store) hourlyIntervalFeaturesForAuth(provider, authID string, fromTS, toTS int64, dims []TokenDimension) ([]float64, error) {
+	var rows *sql.Rows
+	var err error
+	if authID == "" {
+		rows, err = s.db.Query(`
+			SELECT hour_ts, model, SUM(input_tokens_sum), SUM(output_tokens_sum), SUM(cached_tokens_sum)
 			FROM hourly_aggregates
-			WHERE provider = ? AND auth_id = ? AND hour_ts = ?
-			GROUP BY model`, provider, authID, hourTS)
+			WHERE provider = ? AND hour_ts < ? AND hour_ts + 3600 > ?
+			GROUP BY hour_ts, model`, provider, toTS, fromTS)
+	} else {
+		rows, err = s.db.Query(`
+			SELECT hour_ts, model, SUM(input_tokens_sum), SUM(output_tokens_sum), SUM(cached_tokens_sum)
+			FROM hourly_aggregates
+			WHERE provider = ? AND auth_id = ? AND hour_ts < ? AND hour_ts + 3600 > ?
+			GROUP BY hour_ts, model`, provider, authID, toTS, fromTS)
 	}
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	byModel := map[string][3]int64{}
+	sums := map[string]tokenFeatureSums{}
 	for rows.Next() {
+		var hourTS int64
 		var model string
 		var input, output, cached int64
-		if err := rows.Scan(&model, &input, &output, &cached); err != nil {
+		if err := rows.Scan(&hourTS, &model, &input, &output, &cached); err != nil {
 			return nil, err
 		}
-		byModel[model] = [3]int64{input, output, cached}
+		overlapStart := maxInt64(fromTS, hourTS)
+		overlapEnd := minInt64(toTS, hourTS+analyticsHourBucketSeconds)
+		if overlapEnd <= overlapStart {
+			continue
+		}
+		factor := float64(overlapEnd-overlapStart) / float64(analyticsHourBucketSeconds)
+		cur := sums[model]
+		cur.input += float64(input) * factor
+		cur.output += float64(output) * factor
+		cur.cached += float64(cached) * factor
+		sums[model] = cur
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return tokenFeaturesFromSums(sums, dims), nil
+}
+
+func (s *Store) rawLogsMayCover(fromTS int64) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	retentionSeconds := s.rawRetentionSeconds
+	s.mu.RUnlock()
+	return retentionSeconds > 0 && fromTS >= time.Now().Unix()-retentionSeconds
+}
+
+type tokenFeatureSums struct {
+	input  float64
+	output float64
+	cached float64
+}
+
+func tokenFeaturesFromSums(sums map[string]tokenFeatureSums, dims []TokenDimension) []float64 {
+	features := make([]float64, len(dims))
 	for i, dim := range dims {
-		vals := byModel[dim.Model]
+		vals := sums[dim.Model]
 		switch dim.TokenType {
 		case "input":
-			features[i] = float64(vals[0]) / tokenMillion
+			features[i] = vals.input / tokenMillion
 		case "output":
-			features[i] = float64(vals[1]) / tokenMillion
+			features[i] = vals.output / tokenMillion
 		case "cached_input":
-			features[i] = float64(vals[2]) / tokenMillion
+			features[i] = vals.cached / tokenMillion
 		}
 	}
-	return features, nil
+	return features
+}
+
+func minInt64(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (s *Store) UpsertTokenPrice(row TokenPriceRow) error {
@@ -337,10 +670,10 @@ func (s *Store) UpsertTokenPrice(row TokenPriceRow) error {
 	}
 	_, err := s.db.Exec(`
 		INSERT INTO daily_token_prices
-		(price_date,provider,model,token_type,price_points_per_million,status,equation_count,
+		(price_date,provider,auth_id,model,token_type,price_points_per_million,status,equation_count,
 		 residual_rms,residual_mad,source_from_ts,source_to_ts,solved_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(price_date,provider,model,token_type) DO UPDATE SET
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(price_date,provider,auth_id,model,token_type) DO UPDATE SET
 		 price_points_per_million=excluded.price_points_per_million,
 		 status=excluded.status,
 		 equation_count=excluded.equation_count,
@@ -349,7 +682,7 @@ func (s *Store) UpsertTokenPrice(row TokenPriceRow) error {
 		 source_from_ts=excluded.source_from_ts,
 		 source_to_ts=excluded.source_to_ts,
 		 solved_at=excluded.solved_at`,
-		row.PriceDate, row.Provider, row.Model, row.TokenType, price, row.Status, row.EquationCount,
+		row.PriceDate, row.Provider, row.AuthID, row.Model, row.TokenType, price, row.Status, row.EquationCount,
 		row.ResidualRMS, row.ResidualMAD, row.SourceFromTS, row.SourceToTS, row.SolvedAt)
 	return err
 }
@@ -362,11 +695,11 @@ func (s *Store) TokenPrices(priceDate string) ([]TokenPriceRow, error) {
 		priceDate = time.Now().Format("2006-01-02")
 	}
 	rows, err := s.db.Query(`
-		SELECT price_date,provider,model,token_type,price_points_per_million,status,equation_count,
+		SELECT price_date,provider,auth_id,model,token_type,price_points_per_million,status,equation_count,
 		       residual_rms,residual_mad,source_from_ts,source_to_ts,solved_at
 		FROM daily_token_prices
 		WHERE price_date = ?
-		ORDER BY provider, model, token_type`, priceDate)
+		ORDER BY provider, auth_id, model, token_type`, priceDate)
 	if err != nil {
 		return nil, err
 	}
@@ -375,7 +708,7 @@ func (s *Store) TokenPrices(priceDate string) ([]TokenPriceRow, error) {
 	for rows.Next() {
 		var r TokenPriceRow
 		var price sql.NullFloat64
-		if err := rows.Scan(&r.PriceDate, &r.Provider, &r.Model, &r.TokenType, &price, &r.Status,
+		if err := rows.Scan(&r.PriceDate, &r.Provider, &r.AuthID, &r.Model, &r.TokenType, &price, &r.Status,
 			&r.EquationCount, &r.ResidualRMS, &r.ResidualMAD, &r.SourceFromTS, &r.SourceToTS, &r.SolvedAt); err != nil {
 			return nil, err
 		}
@@ -387,11 +720,11 @@ func (s *Store) TokenPrices(priceDate string) ([]TokenPriceRow, error) {
 	return out, nil
 }
 
-func (s *Store) ProviderQuotaLines(fromTS, toTS int64, resetOn429, resetOnRefresh bool) (*ProviderQuotaLinesResponse, error) {
+func (s *Store) ProviderQuotaLines(fromTS, toTS int64, resetOn429, resetOnRefresh bool, windowClass string) (*ProviderQuotaLinesResponse, error) {
 	if s == nil {
 		return &ProviderQuotaLinesResponse{}, nil
 	}
-	providers, err := s.analyticsProviders(fromTS, toTS)
+	keys, err := s.analyticsAuthRefs(fromTS, toTS)
 	if err != nil {
 		return nil, err
 	}
@@ -400,40 +733,41 @@ func (s *Store) ProviderQuotaLines(fromTS, toTS int64, resetOn429, resetOnRefres
 	if err != nil {
 		return nil, err
 	}
-	hourPoints, err := s.hourlyPricePoints(fromTS, toTS, priceRows)
+	bucketSeconds := analyticsBucketSeconds(fromTS, toTS)
+	bucketPoints, err := s.pricePointsByAuthBucket(fromTS, toTS, bucketSeconds, priceRows)
 	if err != nil {
 		return nil, err
 	}
-	events, err := s.eventCountsByProviderHour(fromTS, toTS)
+	events, err := s.eventCountsByAuthBucket(fromTS, toTS, bucketSeconds)
 	if err != nil {
 		return nil, err
 	}
-	resetMarkers, err := s.resetMarkersByProvider(fromTS, toTS)
+	resetMarkers, err := s.resetMarkersByAuth(fromTS, toTS)
 	if err != nil {
 		return nil, err
 	}
 	resp := &ProviderQuotaLinesResponse{}
-	for _, provider := range providers {
-		windowType, err := s.chooseQuotaWindow(provider, fromTS-60*86400, toTS)
+	for _, key := range keys {
+		windowType, err := s.chooseQuotaWindowForAuthClass(key.provider, key.authID, fromTS-60*86400, toTS, windowClass)
 		if err != nil {
 			return nil, err
 		}
-		usedByHour, err := s.quotaUsedByHour(provider, windowType, fromTS, toTS)
+		usedByBucket, err := s.quotaUsedByBucket(key.provider, key.authID, windowType, fromTS, toTS, bucketSeconds)
 		if err != nil {
 			return nil, err
 		}
-		series := ProviderQuotaSeries{Provider: provider, WindowType: windowType, PriceDate: priceDate}
-		series.MostExpensivePricePointsPerMillion = maxProviderPrice(provider, priceRows)
+		series := ProviderQuotaSeries{Provider: key.provider, AuthID: key.authID, WindowType: windowType, PriceDate: priceDate}
+		series.MostExpensivePricePointsPerMillion = maxProviderAuthPrice(key.provider, key.authID, priceRows)
 		if series.MostExpensivePricePointsPerMillion > 0 {
 			series.MillionTokensFor100PercentQuota = quotaPointsFull / series.MostExpensivePricePointsPerMillion
 		}
-		for _, resetAt := range resetMarkers[provider] {
+		for _, resetAt := range resetMarkers[key] {
 			series.ResetMarkers = append(series.ResetMarkers, ProviderQuotaResetMarker{ResetAt: resetAt, Points: 0})
 		}
 		var cumulative, lastUsed float64
 		var haveLast bool
-		for hour := floorHour(fromTS); hour < toTS; hour += 3600 {
-			used, ok := usedByHour[hour]
+		for bucket := floorBucket(fromTS, bucketSeconds); bucket < toTS; bucket += bucketSeconds {
+			used, ok := usedByBucket[bucket]
 			if ok && haveLast && used < lastUsed {
 				cumulative = 0
 			}
@@ -443,22 +777,26 @@ func (s *Store) ProviderQuotaLines(fromTS, toTS int64, resetOn429, resetOnRefres
 			} else if haveLast {
 				used = lastUsed
 			}
-			eventCount := events[provider][hour]
+			eventCount := events[key][bucket]
 			if resetOn429 && eventCount > 0 {
 				cumulative = 0
 			}
-			if resetOnRefresh && hasResetInHour(resetMarkers[provider], hour) {
+			if resetOnRefresh && hasResetInBucket(resetMarkers[key], bucket, bucketSeconds) {
 				cumulative = 0
 			}
-			hourValue := hourPoints[provider][hour]
-			cumulative += hourValue
+			bucketValue := bucketPoints[key][bucket]
+			cumulative += bucketValue
 			remainingPercent := math.Max(0, 100-used)
+			usedPercent := math.Max(0, used)
 			series.Points = append(series.Points, ProviderQuotaLinePoint{
-				HourTS:                   hour,
+				HourTS:                   bucket,
+				BucketTS:                 bucket,
+				BucketSeconds:            bucketSeconds,
 				QuotaRemainingPoints:     remainingPercent / 100 * quotaPointsFull,
 				QuotaRemainingPercent:    remainingPercent,
 				QuotaUsedPercent:         used,
-				CLIProxyHourPoints:       hourValue,
+				QuotaUsedPoints:          usedPercent / 100 * quotaPointsFull,
+				CLIProxyHourPoints:       bucketValue,
 				CLIProxyCumulativePoints: cumulative,
 				QuotaEventsCount:         eventCount,
 			})
@@ -468,37 +806,40 @@ func (s *Store) ProviderQuotaLines(fromTS, toTS int64, resetOn429, resetOnRefres
 	return resp, nil
 }
 
-func (s *Store) analyticsProviders(fromTS, toTS int64) ([]string, error) {
+func (s *Store) analyticsAuthRefs(fromTS, toTS int64) ([]quotaSeriesKey, error) {
 	rows, err := s.db.Query(`
-		SELECT provider FROM hourly_aggregates WHERE hour_ts >= ? AND hour_ts < ? AND provider <> ''
+		SELECT provider, auth_id FROM hourly_aggregates WHERE hour_ts >= ? AND hour_ts < ? AND provider <> ''
 		UNION
-		SELECT provider FROM quota_snapshots WHERE ts >= ? AND ts < ? AND provider <> ''
+		SELECT provider, auth_id FROM query_logs WHERE ts >= ? AND ts < ? AND provider <> ''
 		UNION
-		SELECT provider FROM quota_exhaustion_events WHERE ((ts >= ? AND ts < ?) OR (reset_at >= ? AND reset_at < ?)) AND provider <> ''
-		ORDER BY provider`, fromTS, toTS, fromTS, toTS, fromTS, toTS, fromTS, toTS)
+		SELECT provider, auth_id FROM quota_snapshots WHERE ts >= ? AND ts < ? AND provider <> ''
+		UNION
+		SELECT provider, auth_id FROM quota_exhaustion_events WHERE ((ts >= ? AND ts < ?) OR (reset_at >= ? AND reset_at < ?)) AND provider <> ''
+		ORDER BY provider, auth_id`, fromTS, toTS, fromTS, toTS, fromTS, toTS, fromTS, toTS, fromTS, toTS)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var providers []string
+	var keys []quotaSeriesKey
 	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
+		var key quotaSeriesKey
+		if err := rows.Scan(&key.provider, &key.authID); err != nil {
 			return nil, err
 		}
-		providers = append(providers, p)
+		keys = append(keys, key)
 	}
-	return providers, nil
+	return keys, rows.Err()
 }
 
 func (s *Store) latestSolvedPrices(priceDate string) (map[TokenDimension]float64, error) {
 	rows, err := s.db.Query(`
-		SELECT provider,model,token_type,price_points_per_million
+		SELECT provider,auth_id,model,token_type,price_points_per_million
 		FROM daily_token_prices
 		WHERE status = 'solved' AND price_points_per_million IS NOT NULL
 		  AND price_date = (
 		    SELECT MAX(price_date) FROM daily_token_prices d2
 		    WHERE d2.provider = daily_token_prices.provider
+		      AND d2.auth_id = daily_token_prices.auth_id
 		      AND d2.model = daily_token_prices.model
 		      AND d2.token_type = daily_token_prices.token_type
 		      AND d2.status = 'solved'
@@ -513,7 +854,7 @@ func (s *Store) latestSolvedPrices(priceDate string) (map[TokenDimension]float64
 	for rows.Next() {
 		var dim TokenDimension
 		var price float64
-		if err := rows.Scan(&dim.Provider, &dim.Model, &dim.TokenType, &price); err != nil {
+		if err := rows.Scan(&dim.Provider, &dim.AuthID, &dim.Model, &dim.TokenType, &price); err != nil {
 			return nil, err
 		}
 		prices[dim] = price
@@ -521,113 +862,139 @@ func (s *Store) latestSolvedPrices(priceDate string) (map[TokenDimension]float64
 	return prices, nil
 }
 
-func (s *Store) hourlyPricePoints(fromTS, toTS int64, prices map[TokenDimension]float64) (map[string]map[int64]float64, error) {
+func (s *Store) pricePointsByAuthBucket(fromTS, toTS, bucketSeconds int64, prices map[TokenDimension]float64) (map[quotaSeriesKey]map[int64]float64, error) {
+	if bucketSeconds == analyticsFiveMinuteBucketSeconds {
+		return s.queryLogBucketPricePoints(fromTS, toTS, bucketSeconds, prices)
+	}
+	return s.hourlyBucketPricePoints(fromTS, toTS, bucketSeconds, prices)
+}
+
+func (s *Store) queryLogBucketPricePoints(fromTS, toTS, bucketSeconds int64, prices map[TokenDimension]float64) (map[quotaSeriesKey]map[int64]float64, error) {
 	rows, err := s.db.Query(`
-		SELECT hour_ts,provider,model,
+		SELECT (ts / ?) * ? AS bucket_ts,provider,auth_id,model,
+		       SUM(input_tokens),SUM(output_tokens),SUM(cached_tokens)
+		FROM query_logs
+		WHERE ts >= ? AND ts < ?
+		GROUP BY bucket_ts,provider,auth_id,model`, bucketSeconds, bucketSeconds, fromTS, toTS)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanPricePointRows(rows, prices)
+}
+
+func (s *Store) hourlyBucketPricePoints(fromTS, toTS, bucketSeconds int64, prices map[TokenDimension]float64) (map[quotaSeriesKey]map[int64]float64, error) {
+	rows, err := s.db.Query(`
+		SELECT (hour_ts / ?) * ? AS bucket_ts,provider,auth_id,model,
 		       SUM(input_tokens_sum),SUM(output_tokens_sum),SUM(cached_tokens_sum)
 		FROM hourly_aggregates
 		WHERE hour_ts >= ? AND hour_ts < ?
-		GROUP BY hour_ts,provider,model`, fromTS, toTS)
+		GROUP BY bucket_ts,provider,auth_id,model`, bucketSeconds, bucketSeconds, fromTS, toTS)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]map[int64]float64{}
-	for rows.Next() {
-		var hour int64
-		var provider, model string
-		var input, output, cached int64
-		if err := rows.Scan(&hour, &provider, &model, &input, &output, &cached); err != nil {
-			return nil, err
-		}
-		points := float64(input)/tokenMillion*prices[TokenDimension{provider, model, "input"}] +
-			float64(output)/tokenMillion*prices[TokenDimension{provider, model, "output"}] +
-			float64(cached)/tokenMillion*prices[TokenDimension{provider, model, "cached_input"}]
-		if out[provider] == nil {
-			out[provider] = map[int64]float64{}
-		}
-		out[provider][hour] += points
-	}
-	return out, nil
+	return scanPricePointRows(rows, prices)
 }
 
-func (s *Store) eventCountsByProviderHour(fromTS, toTS int64) (map[string]map[int64]int64, error) {
+func scanPricePointRows(rows *sql.Rows, prices map[TokenDimension]float64) (map[quotaSeriesKey]map[int64]float64, error) {
+	out := map[quotaSeriesKey]map[int64]float64{}
+	for rows.Next() {
+		var bucket int64
+		var key quotaSeriesKey
+		var model string
+		var input, output, cached int64
+		if err := rows.Scan(&bucket, &key.provider, &key.authID, &model, &input, &output, &cached); err != nil {
+			return nil, err
+		}
+		points := float64(input)/tokenMillion*prices[TokenDimension{Provider: key.provider, AuthID: key.authID, Model: model, TokenType: "input"}] +
+			float64(output)/tokenMillion*prices[TokenDimension{Provider: key.provider, AuthID: key.authID, Model: model, TokenType: "output"}] +
+			float64(cached)/tokenMillion*prices[TokenDimension{Provider: key.provider, AuthID: key.authID, Model: model, TokenType: "cached_input"}]
+		if out[key] == nil {
+			out[key] = map[int64]float64{}
+		}
+		out[key][bucket] += points
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) eventCountsByAuthBucket(fromTS, toTS, bucketSeconds int64) (map[quotaSeriesKey]map[int64]int64, error) {
 	rows, err := s.db.Query(`
-		SELECT provider, (ts / 3600) * 3600 AS hour_ts, COUNT(*)
+		SELECT provider, auth_id, (ts / ?) * ? AS bucket_ts, COUNT(*)
 		FROM quota_exhaustion_events
 		WHERE ts >= ? AND ts < ?
-		GROUP BY provider, hour_ts`, fromTS, toTS)
+		GROUP BY provider, auth_id, bucket_ts`, bucketSeconds, bucketSeconds, fromTS, toTS)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]map[int64]int64{}
+	out := map[quotaSeriesKey]map[int64]int64{}
 	for rows.Next() {
-		var provider string
-		var hour, count int64
-		if err := rows.Scan(&provider, &hour, &count); err != nil {
+		var key quotaSeriesKey
+		var bucket, count int64
+		if err := rows.Scan(&key.provider, &key.authID, &bucket, &count); err != nil {
 			return nil, err
 		}
-		if out[provider] == nil {
-			out[provider] = map[int64]int64{}
+		if out[key] == nil {
+			out[key] = map[int64]int64{}
 		}
-		out[provider][hour] = count
+		out[key][bucket] = count
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
-func (s *Store) resetMarkersByProvider(fromTS, toTS int64) (map[string][]int64, error) {
+func (s *Store) resetMarkersByAuth(fromTS, toTS int64) (map[quotaSeriesKey][]int64, error) {
 	rows, err := s.db.Query(`
-		SELECT provider, reset_at
+		SELECT provider, auth_id, reset_at
 		FROM quota_exhaustion_events
 		WHERE reset_at >= ? AND reset_at < ? AND reset_at > 0 AND provider <> ''
-		GROUP BY provider, reset_at
-		ORDER BY provider, reset_at`, fromTS, toTS)
+		GROUP BY provider, auth_id, reset_at
+		ORDER BY provider, auth_id, reset_at`, fromTS, toTS)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string][]int64{}
+	out := map[quotaSeriesKey][]int64{}
 	for rows.Next() {
-		var provider string
+		var key quotaSeriesKey
 		var resetAt int64
-		if err := rows.Scan(&provider, &resetAt); err != nil {
+		if err := rows.Scan(&key.provider, &key.authID, &resetAt); err != nil {
 			return nil, err
 		}
-		out[provider] = append(out[provider], resetAt)
+		out[key] = append(out[key], resetAt)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
-func hasResetInHour(resetTimes []int64, hourTS int64) bool {
+func hasResetInBucket(resetTimes []int64, bucketTS, bucketSeconds int64) bool {
 	for _, resetAt := range resetTimes {
-		if floorHour(resetAt) == hourTS {
+		if floorBucket(resetAt, bucketSeconds) == bucketTS {
 			return true
 		}
 	}
 	return false
 }
 
-func (s *Store) quotaUsedByHour(provider, windowType string, fromTS, toTS int64) (map[int64]float64, error) {
+func (s *Store) quotaUsedByBucket(provider, authID, windowType string, fromTS, toTS, bucketSeconds int64) (map[int64]float64, error) {
 	rows, err := s.db.Query(`
-		SELECT (ts / 3600) * 3600 AS hour_ts, MAX(used_percent)
+		SELECT (ts / ?) * ? AS bucket_ts, used_percent
 		FROM quota_snapshots
-		WHERE provider = ? AND window_type = ? AND ts >= ? AND ts < ?
-		GROUP BY hour_ts`, provider, windowType, fromTS, toTS)
+		WHERE provider = ? AND auth_id = ? AND window_type = ? AND ts >= ? AND ts < ?
+		ORDER BY bucket_ts, ts, id`, bucketSeconds, bucketSeconds, provider, authID, windowType, fromTS, toTS)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := map[int64]float64{}
 	for rows.Next() {
-		var hour int64
+		var bucket int64
 		var used float64
-		if err := rows.Scan(&hour, &used); err != nil {
+		if err := rows.Scan(&bucket, &used); err != nil {
 			return nil, err
 		}
-		out[hour] = normalizeUsedFraction(used) * 100
+		out[bucket] = normalizeUsedFraction(used) * 100
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 func solveRobust(equations []quotaEquation, dimensions int) solveResult {
@@ -796,10 +1163,6 @@ func normalizeUsedFraction(v float64) float64 {
 	return v
 }
 
-func floorHour(ts int64) int64 {
-	return ts - ts%3600
-}
-
 func sumFloat(values []float64) float64 {
 	var sum float64
 	for _, v := range values {
@@ -820,10 +1183,10 @@ func isFinite(v float64) bool {
 	return !math.IsNaN(v) && !math.IsInf(v, 0)
 }
 
-func maxProviderPrice(provider string, prices map[TokenDimension]float64) float64 {
+func maxProviderAuthPrice(provider, authID string, prices map[TokenDimension]float64) float64 {
 	var maxPrice float64
 	for dim, price := range prices {
-		if dim.Provider == provider && price > maxPrice {
+		if dim.Provider == provider && dim.AuthID == authID && price > maxPrice {
 			maxPrice = price
 		}
 	}

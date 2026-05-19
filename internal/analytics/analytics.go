@@ -21,6 +21,26 @@ const ClientKeyIDCtxKey = contextKey("analytics_client_key_id")
 
 const defaultRetentionDays = 7
 
+const (
+	analyticsFiveMinuteBucketSeconds = int64(5 * 60)
+	analyticsHourBucketSeconds       = int64(60 * 60)
+	analyticsFineBucketMaxRange      = int64(24 * 60 * 60)
+)
+
+func analyticsBucketSeconds(fromTS, toTS int64) int64 {
+	if toTS-fromTS <= analyticsFineBucketMaxRange {
+		return analyticsFiveMinuteBucketSeconds
+	}
+	return analyticsHourBucketSeconds
+}
+
+func floorBucket(ts, bucketSeconds int64) int64 {
+	if bucketSeconds <= 0 {
+		bucketSeconds = analyticsHourBucketSeconds
+	}
+	return ts - ts%bucketSeconds
+}
+
 // Store wraps the analytics SQLite database.
 type Store struct {
 	db                  *sql.DB
@@ -190,6 +210,7 @@ CREATE INDEX IF NOT EXISTS idx_qs_provider_window_ts ON quota_snapshots(provider
 CREATE TABLE IF NOT EXISTS daily_token_prices (
     price_date                 TEXT NOT NULL,
     provider                   TEXT NOT NULL,
+    auth_id                    TEXT NOT NULL DEFAULT '',
     model                      TEXT NOT NULL,
     token_type                 TEXT NOT NULL,
     price_points_per_million   REAL,
@@ -200,9 +221,8 @@ CREATE TABLE IF NOT EXISTS daily_token_prices (
     source_from_ts             INTEGER DEFAULT 0,
     source_to_ts               INTEGER DEFAULT 0,
     solved_at                  INTEGER DEFAULT 0,
-    PRIMARY KEY (price_date, provider, model, token_type)
+    PRIMARY KEY (price_date, provider, auth_id, model, token_type)
 );
-CREATE INDEX IF NOT EXISTS idx_dtp_date_provider ON daily_token_prices(price_date,provider);
 `
 
 func migrate(db *sql.DB) error {
@@ -215,7 +235,10 @@ func migrate(db *sql.DB) error {
 	if err := ensureColumn(db, "quota_exhaustion_events", "reset_at", "INTEGER DEFAULT 0"); err != nil {
 		return err
 	}
-	return migrateHourlyAggregates(db)
+	if err := migrateHourlyAggregates(db); err != nil {
+		return err
+	}
+	return migrateDailyTokenPrices(db)
 }
 
 func ensureColumn(db *sql.DB, table, column, definition string) error {
@@ -241,12 +264,13 @@ func ensureColumn(db *sql.DB, table, column, definition string) error {
 	return err
 }
 
-func migrateHourlyAggregates(db *sql.DB) error {
-	needsRebuild := true
-	rows, err := db.Query("PRAGMA table_info(hourly_aggregates)")
+func tablePrimaryKeyColumns(db *sql.DB, table string) (map[string]int, error) {
+	rows, err := db.Query("PRAGMA table_info(" + table + ")")
 	if err != nil {
-		return err
+		return nil, err
 	}
+	defer rows.Close()
+	cols := map[string]int{}
 	for rows.Next() {
 		var cid int
 		var name, typ string
@@ -254,14 +278,19 @@ func migrateHourlyAggregates(db *sql.DB) error {
 		var defaultValue any
 		var pk int
 		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
-			_ = rows.Close()
-			return err
+			return nil, err
 		}
-		if name == "auth_id" && pk > 0 {
-			needsRebuild = false
-		}
+		cols[name] = pk
 	}
-	_ = rows.Close()
+	return cols, rows.Err()
+}
+
+func migrateHourlyAggregates(db *sql.DB) error {
+	pkCols, err := tablePrimaryKeyColumns(db, "hourly_aggregates")
+	if err != nil {
+		return err
+	}
+	needsRebuild := pkCols["auth_id"] == 0
 
 	if !needsRebuild {
 		_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_ha_provider_hour ON hourly_aggregates(provider,hour_ts)`)
@@ -293,6 +322,48 @@ func migrateHourlyAggregates(db *sql.DB) error {
 		DROP TABLE IF EXISTS hourly_aggregates;
 		ALTER TABLE hourly_aggregates_new RENAME TO hourly_aggregates;
 		CREATE INDEX IF NOT EXISTS idx_ha_provider_hour ON hourly_aggregates(provider,hour_ts);
+	`)
+	return err
+}
+
+func migrateDailyTokenPrices(db *sql.DB) error {
+	pkCols, err := tablePrimaryKeyColumns(db, "daily_token_prices")
+	if err != nil {
+		return err
+	}
+	needsRebuild := pkCols["auth_id"] == 0
+
+	if !needsRebuild {
+		_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_dtp_date_provider_auth ON daily_token_prices(price_date,provider,auth_id)`)
+		return err
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS daily_token_prices_new (
+		    price_date                 TEXT NOT NULL,
+		    provider                   TEXT NOT NULL,
+		    auth_id                    TEXT NOT NULL DEFAULT '',
+		    model                      TEXT NOT NULL,
+		    token_type                 TEXT NOT NULL,
+		    price_points_per_million   REAL,
+		    status                     TEXT NOT NULL DEFAULT '',
+		    equation_count             INTEGER DEFAULT 0,
+		    residual_rms               REAL DEFAULT 0,
+		    residual_mad               REAL DEFAULT 0,
+		    source_from_ts             INTEGER DEFAULT 0,
+		    source_to_ts               INTEGER DEFAULT 0,
+		    solved_at                  INTEGER DEFAULT 0,
+		    PRIMARY KEY (price_date, provider, auth_id, model, token_type)
+		);
+		INSERT OR REPLACE INTO daily_token_prices_new
+		(price_date,provider,auth_id,model,token_type,price_points_per_million,status,equation_count,
+		 residual_rms,residual_mad,source_from_ts,source_to_ts,solved_at)
+		SELECT price_date,provider,'',model,token_type,price_points_per_million,status,equation_count,
+		       residual_rms,residual_mad,source_from_ts,source_to_ts,solved_at
+		FROM daily_token_prices;
+		DROP TABLE IF EXISTS daily_token_prices;
+		ALTER TABLE daily_token_prices_new RENAME TO daily_token_prices;
+		CREATE INDEX IF NOT EXISTS idx_dtp_date_provider_auth ON daily_token_prices(price_date,provider,auth_id);
 	`)
 	return err
 }
@@ -416,6 +487,8 @@ type SummaryRow struct {
 // HourlyAggregateRow mirrors one row in hourly_aggregates.
 type HourlyAggregateRow struct {
 	HourTS          int64  `json:"hour_ts"`
+	BucketTS        int64  `json:"bucket_ts,omitempty"`
+	BucketSeconds   int64  `json:"bucket_seconds,omitempty"`
 	ClientKeyID     int    `json:"client_key_id"`
 	Provider        string `json:"provider"`
 	AuthID          string `json:"auth_id"`
@@ -472,11 +545,35 @@ func (s *Store) Summary(fromTS, toTS int64) (*SummaryRow, error) {
 	return &r, nil
 }
 
-// HourlyRows returns hourly_aggregates rows for [fromTS, toTS), newest first.
+// HourlyRows returns usage aggregate rows for [fromTS, toTS), newest first.
 func (s *Store) HourlyRows(fromTS, toTS int64) ([]HourlyAggregateRow, error) {
 	if s == nil {
 		return nil, nil
 	}
+	bucketSeconds := analyticsBucketSeconds(fromTS, toTS)
+	if bucketSeconds == analyticsFiveMinuteBucketSeconds {
+		return s.queryLogBucketRows(fromTS, toTS, bucketSeconds)
+	}
+	return s.hourlyAggregateBucketRows(fromTS, toTS, bucketSeconds)
+}
+
+func (s *Store) queryLogBucketRows(fromTS, toTS, bucketSeconds int64) ([]HourlyAggregateRow, error) {
+	rows, err := s.db.Query(`
+		SELECT (ts / ?) * ? AS bucket_ts,client_key_id,provider,auth_id,model,
+		       COUNT(*),COALESCE(SUM(success),0),COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),0),
+		       COALESCE(SUM(input_tokens),0),COALESCE(SUM(output_tokens),0),
+		       COALESCE(SUM(cached_tokens),0),COALESCE(SUM(total_tokens),0)
+		FROM query_logs WHERE ts >= ? AND ts < ?
+		GROUP BY bucket_ts,client_key_id,provider,auth_id,model
+		ORDER BY bucket_ts DESC`, bucketSeconds, bucketSeconds, fromTS, toTS)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAggregateRows(rows, bucketSeconds)
+}
+
+func (s *Store) hourlyAggregateBucketRows(fromTS, toTS, bucketSeconds int64) ([]HourlyAggregateRow, error) {
 	rows, err := s.db.Query(`
 		SELECT hour_ts,client_key_id,provider,auth_id,model,
 		       request_count,success_count,error_count,
@@ -487,6 +584,10 @@ func (s *Store) HourlyRows(fromTS, toTS int64) ([]HourlyAggregateRow, error) {
 		return nil, err
 	}
 	defer rows.Close()
+	return scanAggregateRows(rows, bucketSeconds)
+}
+
+func scanAggregateRows(rows *sql.Rows, bucketSeconds int64) ([]HourlyAggregateRow, error) {
 	var out []HourlyAggregateRow
 	for rows.Next() {
 		var r HourlyAggregateRow
@@ -495,9 +596,11 @@ func (s *Store) HourlyRows(fromTS, toTS int64) ([]HourlyAggregateRow, error) {
 			&r.InputTokensSum, &r.OutputTokensSum, &r.CachedTokensSum, &r.TotalTokensSum); err != nil {
 			continue
 		}
+		r.BucketTS = r.HourTS
+		r.BucketSeconds = bucketSeconds
 		out = append(out, r)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // ByModel returns hourly_aggregates summed by (model, provider) for [fromTS, toTS).

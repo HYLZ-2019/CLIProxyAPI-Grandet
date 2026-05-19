@@ -150,6 +150,41 @@ func (h *Handler) GetAnalyticsTokenPrices(c *gin.Context) {
 	c.JSON(http.StatusOK, rows)
 }
 
+func (h *Handler) PostAnalyticsSolveTokenPrices(c *gin.Context) {
+	store := analytics.Get()
+	if store == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "analytics not enabled"})
+		return
+	}
+	dateText := c.Query("date")
+	var date time.Time
+	var err error
+	if dateText == "" {
+		date = time.Now()
+	} else {
+		date, err = time.Parse("2006-01-02", dateText)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date"})
+			return
+		}
+	}
+	resp, err := store.SolveTokenPricesForDateWithResult(date)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if resp == nil {
+		resp = &analytics.TokenPriceSolveResponse{PriceDate: date.Format("2006-01-02"), Status: "no_token_usage", Rows: []analytics.TokenPriceRow{}, Providers: []analytics.TokenPriceSolveProviderResult{}}
+	}
+	if resp.Rows == nil {
+		resp.Rows = []analytics.TokenPriceRow{}
+	}
+	if resp.Providers == nil {
+		resp.Providers = []analytics.TokenPriceSolveProviderResult{}
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 func (h *Handler) GetAnalyticsProviderQuotaLines(c *gin.Context) {
 	store := analytics.Get()
 	if store == nil {
@@ -159,7 +194,12 @@ func (h *Handler) GetAnalyticsProviderQuotaLines(c *gin.Context) {
 	from, to := parseTimeRange(c, 7*24*time.Hour)
 	resetOn429 := c.Query("reset_on_429") == "true" || c.Query("reset_on_429") == "1"
 	resetOnRefresh := c.Query("reset_on_refresh") == "true" || c.Query("reset_on_refresh") == "1"
-	resp, err := store.ProviderQuotaLines(from, to, resetOn429, resetOnRefresh)
+	windowClass := ""
+	switch c.Query("window") {
+	case "5h", "7d":
+		windowClass = c.Query("window")
+	}
+	resp, err := store.ProviderQuotaLines(from, to, resetOn429, resetOnRefresh, windowClass)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

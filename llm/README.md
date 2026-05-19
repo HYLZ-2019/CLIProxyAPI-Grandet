@@ -97,3 +97,59 @@
 - `PUT /config` — 更新 enabled 和 retention days
 
 **状态：已实现；Go 依赖已 tidy。`go test ./...` 全量通过。前端 `type-check`、`lint`、Node v20.20.2 下的 `build` 均通过，并已用 Vite dev server smoke test `/analytics` 路由入口；尚未用真实浏览器手动点验 Analytics UI。**
+
+---
+
+### 2026-05-18 — Grandet 小服务器部署与更新工作流
+
+**背景：** 用户的小服务器容量约 8GB，实际架构为 `aarch64`。Docker 构建会拉取/缓存 Go builder、Node builder、npm 依赖、Go modules 和镜像层，空间压力过大，因此改为本地交叉编译预构建包，在小服务器上用 systemd 直接运行。
+
+**Release 包：**
+- GitHub Release：`grandet-v0.1.0`
+- Release 地址：`https://github.com/HYLZ-2019/CLIProxyAPI-Grandet/releases/tag/grandet-v0.1.0`
+- 已上传资产：
+  - `CLIProxyAPI-Grandet-linux-amd64.tar.gz`
+  - `CLIProxyAPI-Grandet-linux-amd64.tar.gz.sha256`
+  - `CLIProxyAPI-Grandet-linux-arm64.tar.gz`
+  - `CLIProxyAPI-Grandet-linux-arm64.tar.gz.sha256`
+- 小服务器应使用 `linux-arm64` 包；之前使用 `linux-amd64` 会导致 systemd `status=203/EXEC`，因为二进制架构不匹配。
+
+**小服务器部署目录来源：**
+- `/home/ubuntu/CLIProxyAPI-Grandet` 不是源码目录，而是从 release tarball 解压出的部署目录。
+- 部署包内主要包含：
+  - `CLIProxyAPI`：预编译 ARM64 后端二进制
+  - `static/management.html`：已构建好的 Grandet 前端管理面板
+  - `config.example.yaml`：示例配置
+  - `README.md`：项目说明
+  - `INSTALL.md`：安装说明
+- 运行时额外生成或保留：
+  - `config.yaml`：服务器实际配置
+  - `auths/`：OAuth/auth 文件
+  - `logs/`：日志
+  - `data/`：Analytics 数据库等数据
+
+**systemd 服务：**
+- 服务名：`cliproxy-grandet`
+- 服务文件：`/etc/systemd/system/cliproxy-grandet.service`
+- 工作目录：`/home/ubuntu/CLIProxyAPI-Grandet`
+- 启动命令：`/home/ubuntu/CLIProxyAPI-Grandet/CLIProxyAPI`
+- 关键环境变量：`MANAGEMENT_STATIC_PATH=/home/ubuntu/CLIProxyAPI-Grandet/static`
+- “重启代理”指执行：`sudo systemctl restart cliproxy-grandet`，用于让进程重新读取 `config.yaml` 并加载新的二进制/前端静态文件。
+
+**数据延续规则：**
+- 持久数据可以延续，关键是不要删除或覆盖：
+  - `config.yaml`
+  - `auths/`
+  - `logs/`
+  - `data/`
+- Analytics 数据库位于：`/home/ubuntu/CLIProxyAPI-Grandet/data/analytics.db`。
+- 日常更新时只覆盖 `CLIProxyAPI` 和 `static/management.html`，即可保留配置、认证文件和用量统计数据。
+- 避免重复执行会覆盖配置/数据的操作，例如 `cp config.example.yaml config.yaml` 或 `rm -rf data auths logs`。
+
+**推荐迭代工作流：**
+- 不在小服务器上构建 Go、Node 或 Docker；在本地开发机完成构建。
+- 只改前端时：本地执行 `npm --prefix web run build`，然后把 `web/dist/index.html` 传到小服务器的 `static/management.html`，最后重启 `cliproxy-grandet`。
+- 改了 Go 后端时：本地交叉编译 `CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build ...`，把生成的二进制传到小服务器的 `CLIProxyAPI`，`chmod +x` 后重启服务。
+- 需要稳定分发给服务器时，再打新的 GitHub Release 包。
+
+**状态：** 已创建 `grandet-v0.1.0` release，已补充 ARM64 包；小服务器应改用 `CLIProxyAPI-Grandet-linux-arm64.tar.gz`。

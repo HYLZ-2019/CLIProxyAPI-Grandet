@@ -157,8 +157,12 @@
       "tokens_axis": "Tokens"
     },
     "quota_lines": {
-      "title": "Provider quota lines",
-      "hint": "One chart per provider: remaining quota points from quota polling, CLIProxyAPI cumulative weighted usage, optional 429 markers, and expected refresh markers.",
+      "title": "Auth file quota lines",
+      "hint": "Select one auth file and view its last 5 hours and last 7 days of used quota points, CLIProxyAPI cumulative weighted usage, optional 429 markers, and expected refresh markers.",
+      "select_auth": "Auth file",
+      "range_5h": "Last 5 hours",
+      "range_7d": "Last 7 days",
+      "no_auth_options": "No auth files available.",
       "hide_429": "Hide 429 dots",
       "show_429": "Show 429 dots",
       "hide_refresh_markers": "Hide refresh dots",
@@ -166,17 +170,27 @@
       "reset_on_429": "Reset cumulative on 429",
       "reset_on_refresh": "Reset cumulative on expected refresh",
       "quota_remaining": "Quota remaining points",
+      "quota_used": "Quota used points",
       "cliproxy_cumulative": "CLIProxyAPI cumulative points",
       "quota_429": "429 event",
       "expected_refresh": "Expected refresh",
       "weekly_capacity": "100% quota at max price",
+      "provider_label": "Provider: {{provider}}",
+      "unknown_auth": "Unknown auth file",
       "no_window": "No quota window"
     },
     "prices": {
       "title": "Daily token prices",
-      "hint": "Current-day token prices solved from quota deltas and hourly token usage, in quota points per 1M tokens.",
+      "hint": "Current-day token prices solved per auth file from quota deltas and token usage, in quota points per 1M tokens.",
+      "solve_now": "Solve now",
+      "solving": "Solving...",
+      "solve_failed": "Solve failed.",
+      "solve_summary": "Scopes: {{providers}}, equations: {{equations}}.",
+      "select_auth": "Auth file",
+      "no_auth_options": "No auth files available.",
       "col_date": "Date",
       "col_provider": "Provider",
+      "col_auth": "Auth file",
       "col_model": "Model",
       "col_token_type": "Token type",
       "col_price": "Points / 1M",
@@ -191,10 +205,23 @@
       },
       "status": {
         "solved": "Solved",
+        "partial": "Partial",
+        "no_token_usage": "No token usage",
+        "no_quota_snapshots": "No quota snapshots",
         "insufficient_equations": "Insufficient equations",
         "rank_deficient": "Rank deficient",
         "low_confidence": "Low confidence",
         "unknown": "Unknown"
+      },
+      "solve_status": {
+        "solved": "Token prices solved and the table was refreshed.",
+        "partial": "Some providers were solved, but others still need more data points.",
+        "no_token_usage": "Not enough data: no token usage was found in the solve window.",
+        "no_quota_snapshots": "Not enough data: no quota snapshots were found. Wait for the quota poller or manually refresh credentials in quota management.",
+        "insufficient_equations": "Not enough data: more adjacent quota snapshots and matching token usage are needed to build enough independent equations.",
+        "rank_deficient": "Not enough data: the current request mix is not diverse enough to separate model or token-type prices.",
+        "low_confidence": "A solve was attempted, but the residual is high or the result is unstable. Try again after collecting more data.",
+        "unknown": "Solve finished with an unknown status."
       }
     },
     "errors": {

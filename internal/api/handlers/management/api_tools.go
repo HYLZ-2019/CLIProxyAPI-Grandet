@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/analytics"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/geminicli"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
@@ -207,6 +208,18 @@ func (h *Handler) APICall(c *gin.Context) {
 	if errReadAll != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read response"})
 		return
+	}
+
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices && auth != nil {
+		analytics.CaptureQuotaSnapshotFromAPIResponse(
+			analytics.Get(),
+			time.Now().Unix(),
+			auth.Provider,
+			auth.ID,
+			method,
+			urlStr,
+			respBody,
+		)
 	}
 
 	c.JSON(http.StatusOK, apiCallResponse{

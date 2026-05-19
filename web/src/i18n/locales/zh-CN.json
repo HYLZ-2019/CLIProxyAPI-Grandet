@@ -157,8 +157,12 @@
       "tokens_axis": "Token"
     },
     "quota_lines": {
-      "title": "Provider 配额折线",
-      "hint": "每个 provider 一张图：主动查询得到的剩余额度点数、CLIProxyAPI 累计加权用量、可选的 429 红点，以及预计刷新绿点。",
+      "title": "Auth 文件配额折线",
+      "hint": "选择一个 auth 文件，同时查看近 5 小时和近 7 天的已用额度点数、CLIProxyAPI 累计加权用量、可选的 429 红点，以及预计刷新绿点。",
+      "select_auth": "Auth 文件",
+      "range_5h": "近 5 小时",
+      "range_7d": "近 7 天",
+      "no_auth_options": "暂无可选择的 auth 文件。",
       "hide_429": "隐藏 429 红点",
       "show_429": "显示 429 红点",
       "hide_refresh_markers": "隐藏刷新绿点",
@@ -166,17 +170,27 @@
       "reset_on_429": "429 时重置累计线",
       "reset_on_refresh": "预计刷新时重置累计线",
       "quota_remaining": "剩余额度点数",
+      "quota_used": "已用额度点数",
       "cliproxy_cumulative": "CLIProxyAPI 累计点数",
       "quota_429": "429 事件",
       "expected_refresh": "预计刷新",
       "weekly_capacity": "按最贵 token 的 100% 额度",
+      "provider_label": "Provider: {{provider}}",
+      "unknown_auth": "未知 auth 文件",
       "no_window": "无配额窗口"
     },
     "prices": {
       "title": "每日 token 单价",
-      "hint": "根据配额变化和小时 token 用量解算出的当前日期单价，单位为每 1M token 消耗的额度点。",
+      "hint": "根据每个 auth 文件的配额变化和 token 用量解算出的当前日期单价，单位为每 1M token 消耗的额度点。",
+      "solve_now": "手动解算",
+      "solving": "解算中...",
+      "solve_failed": "解算失败。",
+      "solve_summary": "作用域：{{providers}}，方程：{{equations}}。",
+      "select_auth": "Auth 文件",
+      "no_auth_options": "暂无可选择的 auth 文件。",
       "col_date": "日期",
       "col_provider": "Provider",
+      "col_auth": "Auth 文件",
       "col_model": "模型",
       "col_token_type": "Token 类型",
       "col_price": "点数 / 1M",
@@ -191,10 +205,23 @@
       },
       "status": {
         "solved": "已解算",
+        "partial": "部分解算",
+        "no_token_usage": "无 token 用量",
+        "no_quota_snapshots": "无配额快照",
         "insufficient_equations": "方程不足",
         "rank_deficient": "秩不足",
         "low_confidence": "低可信度",
         "unknown": "未知"
+      },
+      "solve_status": {
+        "solved": "解算完成，价格表已刷新。",
+        "partial": "部分 provider 已解算，其余 provider 的数据点还不够。",
+        "no_token_usage": "数据点不够：解算窗口内没有 token 用量。",
+        "no_quota_snapshots": "数据点不够：解算窗口内没有配额快照。请等待自动额度查询，或在配额管理里手动刷新凭证。",
+        "insufficient_equations": "数据点不够：需要更多相邻配额快照和对应 token 用量，至少要有足够数量的独立方程。",
+        "rank_deficient": "数据点不够：现有请求组合不够多样，暂时无法区分不同 token 类型或模型的价格。",
+        "low_confidence": "已尝试解算，但残差较高或结果不稳定，建议积累更多数据后重试。",
+        "unknown": "解算完成，但状态未知。"
       }
     },
     "errors": {

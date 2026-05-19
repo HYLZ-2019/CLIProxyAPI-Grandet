@@ -12,6 +12,8 @@ export interface AnalyticsSummary {
 
 export interface HourlyAggregateRow {
   hour_ts: number;
+  bucket_ts?: number;
+  bucket_seconds?: number;
   client_key_id: number;
   provider: string;
   auth_id: string;
@@ -70,6 +72,7 @@ export interface QuotaSnapshotRow {
 export interface TokenPriceRow {
   price_date: string;
   provider: string;
+  auth_id: string;
   model: string;
   token_type: string;
   price_points_per_million: number | null;
@@ -82,11 +85,32 @@ export interface TokenPriceRow {
   solved_at: number;
 }
 
+export interface TokenPriceSolveProviderResult {
+  provider: string;
+  auth_id: string;
+  status: string;
+  message: string;
+  dimension_count: number;
+  equation_count: number;
+  row_count: number;
+}
+
+export interface TokenPriceSolveResponse {
+  price_date: string;
+  status: string;
+  message: string;
+  rows: TokenPriceRow[];
+  providers: TokenPriceSolveProviderResult[];
+}
+
 export interface ProviderQuotaLinePoint {
   hour_ts: number;
+  bucket_ts?: number;
+  bucket_seconds?: number;
   quota_remaining_points: number;
   quota_remaining_percent: number;
   quota_used_percent: number;
+  quota_used_points: number;
   cliproxy_hour_points: number;
   cliproxy_cumulative_points: number;
   quota_events_count: number;
@@ -99,6 +123,7 @@ export interface ProviderQuotaResetMarker {
 
 export interface ProviderQuotaSeries {
   provider: string;
+  auth_id: string;
   window_type: string;
   price_date: string;
   most_expensive_price_points_per_million: number;
@@ -117,6 +142,7 @@ export interface AnalyticsConfig {
 }
 
 type Range = { from?: number; to?: number };
+type QuotaWindowClass = '5h' | '7d';
 
 const path = '/analytics';
 
@@ -146,8 +172,14 @@ export const analyticsApi = {
       params: date ? { date } : {},
     }),
 
-  getProviderQuotaLines: (r: Range & { reset_on_429?: boolean; reset_on_refresh?: boolean } = {}) =>
-    apiClient.get<ProviderQuotaLinesResponse>(`${path}/provider-quota-lines`, { params: r }),
+  solveTokenPrices: (date?: string) =>
+    apiClient.post<TokenPriceSolveResponse>(`${path}/token-prices/solve`, undefined, {
+      params: date ? { date } : {},
+    }),
+
+  getProviderQuotaLines: (
+    r: Range & { reset_on_429?: boolean; reset_on_refresh?: boolean; window?: QuotaWindowClass } = {},
+  ) => apiClient.get<ProviderQuotaLinesResponse>(`${path}/provider-quota-lines`, { params: r }),
 
   getConfig: () => apiClient.get<AnalyticsConfig>(`${path}/config`),
 
