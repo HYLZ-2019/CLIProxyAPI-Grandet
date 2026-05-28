@@ -34,6 +34,32 @@
   gap: $spacing-sm;
 }
 
+.timeRangeControls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+}
+
+.timeInputLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.timeInput {
+  width: 170px;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-sm;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
 .rangeGroup {
   display: inline-flex;
   background: var(--bg-secondary);
@@ -57,13 +83,8 @@
 
   &:hover {
     color: var(--text-primary);
+    background: var(--bg-primary);
   }
-}
-
-.rangeBtnActive {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  box-shadow: $shadow-sm;
 }
 
 .toggleGroup {
@@ -132,8 +153,6 @@
   margin: 0;
 }
 
-/* ── Summary stat cards ─────────────────────────────── */
-
 .statsGrid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -142,6 +161,7 @@
   @media (max-width: 900px) {
     grid-template-columns: repeat(2, 1fr);
   }
+
   @media (max-width: 500px) {
     grid-template-columns: 1fr;
   }
@@ -173,9 +193,11 @@
 .accent_primary::before {
   background: $primary-color;
 }
+
 .accent_success::before {
   background: $success-color;
 }
+
 .accent_error::before {
   background: $error-color;
 }
@@ -198,8 +220,6 @@
   font-size: 12px;
   color: var(--text-tertiary);
 }
-
-/* ── Chart / table cards ────────────────────────────── */
 
 .card {
   background: var(--bg-primary);
@@ -235,6 +255,80 @@
   gap: 2px;
 }
 
+.cardTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cardHint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.trendSeriesToggles {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+}
+
+.trendSeriesToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-sm;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+
+  input {
+    width: 12px;
+    height: 12px;
+    margin: 0;
+  }
+}
+
+.chartEmpty {
+  padding: $spacing-md;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.twoCol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: $spacing-md;
+
+  @media (max-width: 1100px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.modelBreakdownPanel {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+  padding: $spacing-sm;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-md;
+  background: var(--bg-secondary);
+}
+
+.modelBreakdownTitle {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .quotaSelectLabel {
   display: flex;
   align-items: center;
@@ -258,53 +352,6 @@
     cursor: not-allowed;
     opacity: 0.6;
   }
-}
-
-.cardTitle {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.cardHint {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-.chartEmpty {
-  padding: $spacing-md;
-  text-align: center;
-  color: var(--text-tertiary);
-  font-size: 13px;
-}
-
-.priceSolveNotice {
-  display: flex;
-  flex-wrap: wrap;
-  gap: $spacing-xs $spacing-sm;
-  align-items: center;
-  padding: 7px $spacing-sm;
-  border-radius: $radius-sm;
-  border: 1px solid var(--border-color);
-  font-size: 12px;
-  color: var(--text-primary);
-}
-
-.noticeSuccess {
-  border-color: color-mix(in srgb, #{$success-color} 35%, transparent);
-  background: color-mix(in srgb, #{$success-color} 8%, transparent);
-}
-
-.noticeWarning {
-  border-color: color-mix(in srgb, #d2a04e 40%, transparent);
-  background: color-mix(in srgb, #d2a04e 10%, transparent);
-}
-
-.noticeError {
-  border-color: color-mix(in srgb, #{$error-color} 40%, transparent);
-  background: color-mix(in srgb, #{$error-color} 10%, transparent);
 }
 
 .providerGrid {
@@ -337,6 +384,14 @@
   font-weight: 600;
 }
 
+.providerStats {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: $spacing-xs;
+  flex-wrap: wrap;
+}
+
 .providerStat {
   display: flex;
   flex-direction: column;
@@ -356,17 +411,20 @@
   }
 }
 
-.twoCol {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: $spacing-md;
-
-  @media (max-width: 1100px) {
-    grid-template-columns: 1fr;
-  }
+.tooltipBox {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: $radius-md;
+  font-size: 12px;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
 }
 
-/* ── Tables ─────────────────────────────────────────── */
+.tooltipTitle {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
 
 .tableWrap {
   overflow-x: auto;
@@ -425,59 +483,12 @@
   white-space: nowrap;
 }
 
-.status_solved {
+.status_official {
   border-color: color-mix(in srgb, #{$success-color} 40%, transparent);
   color: $success-color;
 }
 
-.status_partial,
-.status_no_token_usage,
-.status_no_quota_snapshots,
-.status_insufficient_equations,
-.status_rank_deficient {
+.status_unknown {
   border-color: color-mix(in srgb, #d2a04e 45%, transparent);
   color: #d2a04e;
-}
-
-.status_low_confidence {
-  border-color: color-mix(in srgb, #{$error-color} 40%, transparent);
-  color: $error-color;
-}
-
-/* ── Usage bar inside snapshots table ──────────────── */
-
-.usageBar {
-  position: relative;
-  width: 160px;
-  height: 18px;
-  background: var(--bg-secondary);
-  border-radius: $radius-sm;
-  overflow: hidden;
-}
-
-.usageFill {
-  height: 100%;
-  transition: width $transition-normal;
-}
-
-.usage_ok {
-  background: $success-color;
-}
-.usage_warn {
-  background: #d2a04e;
-}
-.usage_error {
-  background: $error-color;
-}
-
-.usageText {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-primary);
-  text-shadow: 0 0 4px var(--bg-primary);
 }

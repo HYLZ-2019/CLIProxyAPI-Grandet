@@ -47,6 +47,44 @@ func findQuotaSnapshot(rows []quotaSnapshotTestRow, windowType string) (quotaSna
 	return quotaSnapshotTestRow{}, false
 }
 
+func TestNextQuotaPollBoundaryAlignsWithFiveMinuteBuckets(t *testing.T) {
+	if int64(quotaPollInterval/time.Second) != analyticsFiveMinuteBucketSeconds {
+		t.Fatalf("quota poll interval should match fine bucket seconds")
+	}
+
+	cases := []struct {
+		now  time.Time
+		want time.Time
+	}{
+		{
+			now:  time.Date(2026, 5, 18, 8, 0, 0, 0, time.UTC),
+			want: time.Date(2026, 5, 18, 8, 0, 0, 0, time.UTC),
+		},
+		{
+			now:  time.Date(2026, 5, 18, 8, 0, 1, 0, time.UTC),
+			want: time.Date(2026, 5, 18, 8, 5, 0, 0, time.UTC),
+		},
+		{
+			now:  time.Date(2026, 5, 18, 8, 4, 59, int(time.Second-time.Nanosecond), time.UTC),
+			want: time.Date(2026, 5, 18, 8, 5, 0, 0, time.UTC),
+		},
+		{
+			now:  time.Date(2026, 5, 18, 8, 5, 0, 1, time.UTC),
+			want: time.Date(2026, 5, 18, 8, 10, 0, 0, time.UTC),
+		},
+	}
+
+	for _, tc := range cases {
+		got := nextQuotaPollBoundary(tc.now)
+		if !got.Equal(tc.want) {
+			t.Fatalf("nextQuotaPollBoundary(%s) = %s, want %s", tc.now, got, tc.want)
+		}
+		if got.Unix()%analyticsFiveMinuteBucketSeconds != 0 {
+			t.Fatalf("poll boundary %s is not aligned to %d seconds", got, analyticsFiveMinuteBucketSeconds)
+		}
+	}
+}
+
 func TestCaptureClaudeQuotaSnapshotFromAPIResponse(t *testing.T) {
 	store := newPricingTestStore(t)
 	ts := time.Date(2026, 5, 18, 8, 0, 0, 0, time.UTC).Unix()

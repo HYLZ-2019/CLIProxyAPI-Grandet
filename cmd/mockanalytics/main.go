@@ -37,11 +37,11 @@ var clients = []scenarioClient{
 }
 
 var models = []scenarioModel{
-	{provider: "claude", authID: "personal@claude", model: "claude-opus-4-7", avgIn: 3200, avgOut: 900, prices: [3]float64{260, 980, 70}},
-	{provider: "claude", authID: "personal@claude", model: "claude-sonnet-4-6", avgIn: 2400, avgOut: 750, prices: [3]float64{90, 430, 24}},
-	{provider: "codex", authID: "team-alpha@codex", model: "gpt-5-codex", avgIn: 1900, avgOut: 650, prices: [3]float64{140, 560, 36}},
-	{provider: "codex", authID: "team-alpha@codex", model: "gpt-5", avgIn: 1100, avgOut: 450, prices: [3]float64{110, 460, 30}},
-	{provider: "gemini-cli", authID: "team-beta@gcli", model: "gemini-2.5-pro", avgIn: 3600, avgOut: 1100, prices: [3]float64{70, 310, 18}},
+	{provider: "claude", authID: "personal@claude", model: "claude-opus-4-7", avgIn: 3200, avgOut: 900, prices: [3]float64{5, 25, 0.5}},
+	{provider: "claude", authID: "personal@claude", model: "claude-sonnet-4-6", avgIn: 2400, avgOut: 750, prices: [3]float64{3, 15, 0.3}},
+	{provider: "codex", authID: "team-alpha@codex", model: "gpt-5-codex", avgIn: 1900, avgOut: 650, prices: [3]float64{1.25, 10, 0.125}},
+	{provider: "codex", authID: "team-alpha@codex", model: "gpt-5", avgIn: 1100, avgOut: 450, prices: [3]float64{1.25, 10, 0.125}},
+	{provider: "gemini-cli", authID: "team-beta@gcli", model: "gemini-2.5-pro", avgIn: 3600, avgOut: 1100, prices: [3]float64{1.25, 10, 0.125}},
 }
 
 func main() {
@@ -84,10 +84,6 @@ func main() {
 	if err := seedQuotaSnapshotsAndEvents(store, rng, now, hourlyPoints); err != nil {
 		log.Fatalf("seed quota: %v", err)
 	}
-	if err := analytics.DebugSolveTokenPrices(store, now); err != nil {
-		log.Fatalf("solve prices: %v", err)
-	}
-
 	for _, q := range []string{
 		"SELECT COUNT(*) FROM query_logs",
 		"SELECT COUNT(*) FROM hourly_aggregates",

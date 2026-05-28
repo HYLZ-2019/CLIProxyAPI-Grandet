@@ -86,7 +86,9 @@ remote_install() {
   tmp_dir=$(mktemp -d)
   local backup_dir="$install_dir/backups/$(date +%Y%m%d-%H%M%S)"
   cleanup_remote() {
-    rm -rf "$tmp_dir"
+    if [[ -n "${tmp_dir:-}" ]]; then
+      rm -rf "$tmp_dir"
+    fi
   }
   trap cleanup_remote EXIT
 

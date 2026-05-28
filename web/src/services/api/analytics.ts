@@ -24,6 +24,9 @@ export interface HourlyAggregateRow {
   input_tokens_sum: number;
   output_tokens_sum: number;
   cached_tokens_sum: number;
+  reasoning_tokens_sum?: number;
+  cache_read_tokens_sum?: number;
+  cache_creation_tokens_sum?: number;
   total_tokens_sum: number;
 }
 
@@ -36,11 +39,16 @@ export interface ByModelRow {
   input_tokens_sum: number;
   output_tokens_sum: number;
   cached_tokens_sum: number;
+  reasoning_tokens_sum?: number;
+  cache_read_tokens_sum?: number;
+  cache_creation_tokens_sum?: number;
   total_tokens_sum: number;
 }
 
 export interface ByClientRow {
   client_key_id: number;
+  client_key_name?: string;
+  client_key_label?: string;
   request_count: number;
   success_count: number;
   error_count: number;
@@ -70,49 +78,26 @@ export interface QuotaSnapshotRow {
 }
 
 export interface TokenPriceRow {
-  price_date: string;
+  price_date?: string;
   provider: string;
   auth_id: string;
   model: string;
   token_type: string;
-  price_points_per_million: number | null;
+  price_usd_per_million: number | null;
   status: string;
-  equation_count: number;
-  residual_rms: number;
-  residual_mad: number;
-  source_from_ts: number;
-  source_to_ts: number;
-  solved_at: number;
-}
-
-export interface TokenPriceSolveProviderResult {
-  provider: string;
-  auth_id: string;
-  status: string;
-  message: string;
-  dimension_count: number;
-  equation_count: number;
-  row_count: number;
-}
-
-export interface TokenPriceSolveResponse {
-  price_date: string;
-  status: string;
-  message: string;
-  rows: TokenPriceRow[];
-  providers: TokenPriceSolveProviderResult[];
+  source: string;
+  source_from_ts?: number;
+  source_to_ts?: number;
 }
 
 export interface ProviderQuotaLinePoint {
   hour_ts: number;
   bucket_ts?: number;
   bucket_seconds?: number;
-  quota_remaining_points: number;
   quota_remaining_percent: number;
   quota_used_percent: number;
-  quota_used_points: number;
-  cliproxy_hour_points: number;
-  cliproxy_cumulative_points: number;
+  cliproxy_hour_usd: number;
+  cliproxy_cumulative_usd: number;
   quota_events_count: number;
 }
 
@@ -125,9 +110,10 @@ export interface ProviderQuotaSeries {
   provider: string;
   auth_id: string;
   window_type: string;
-  price_date: string;
-  most_expensive_price_points_per_million: number;
-  million_tokens_for_100_percent_quota: number;
+  most_expensive_usd_per_million: number;
+  input_usd_per_million: number;
+  input_price_model: string;
+  estimated_quota_usd: number;
   points: ProviderQuotaLinePoint[];
   reset_markers: ProviderQuotaResetMarker[];
 }
@@ -167,15 +153,8 @@ export const analyticsApi = {
       params: provider ? { provider, limit } : { limit },
     }),
 
-  getTokenPrices: (date?: string) =>
-    apiClient.get<TokenPriceRow[] | null>(`${path}/token-prices`, {
-      params: date ? { date } : {},
-    }),
-
-  solveTokenPrices: (date?: string) =>
-    apiClient.post<TokenPriceSolveResponse>(`${path}/token-prices/solve`, undefined, {
-      params: date ? { date } : {},
-    }),
+  getTokenPrices: (r: Range = {}) =>
+    apiClient.get<TokenPriceRow[] | null>(`${path}/token-prices`, { params: r }),
 
   getProviderQuotaLines: (
     r: Range & { reset_on_429?: boolean; reset_on_refresh?: boolean; window?: QuotaWindowClass } = {},

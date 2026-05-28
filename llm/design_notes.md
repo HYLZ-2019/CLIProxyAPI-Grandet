@@ -4,9 +4,11 @@
 
 ---
 
-## 用量统计与分析（展开）
+## 用量统计与分析（历史展开）
 
-### 潜在需求方向
+当前实现准则见 [`analytics_requirements.md`](analytics_requirements.md)。本节保留早期设计展开，包含一些已经被当前实现取代的内容，例如小时级轮询、价格解算和旧展示范围。
+
+### 早期潜在需求方向
 
 1. **按 client API key ID 分组**
    - 每个 client key 拥有独立的用量记录
@@ -32,7 +34,7 @@
 | 阶段 | 内容 | 状态 |
 |------|------|------|
 | Phase 1 | API key 唯一 ID + 名称机制 | 已完成 |
-| Phase 2 | 用量按 client key ID 分组统计 | 待设计 |
-| Phase 3 | token 粒度用量统计 | 待设计 |
-| Phase 4 | 持久化存储 | 待设计 |
-| Phase 5 | TUI/面板用量可视化 | 待设计 |
+| Phase 2 | 用量按 client key ID 分组统计 | 已实现，当前准则见 `analytics_requirements.md` |
+| Phase 3 | token 粒度用量统计 | 已实现，当前准则见 `analytics_requirements.md` |
+| Phase 4 | 持久化存储 | 已实现，当前准则见 `analytics_requirements.md` |
+| Phase 5 | 面板用量可视化 | 已实现并继续迭代，当前准则见 `analytics_requirements.md` |

@@ -91,7 +91,6 @@ func Init(dbPath string, retentionDays int) error {
 		_ = old.Close()
 	}
 	s.startCleanup()
-	s.startPricingScheduler()
 	return nil
 }
 
@@ -161,6 +160,9 @@ CREATE TABLE IF NOT EXISTS query_logs (
     input_tokens    INTEGER DEFAULT 0,
     output_tokens   INTEGER DEFAULT 0,
     cached_tokens   INTEGER DEFAULT 0,
+    reasoning_tokens INTEGER DEFAULT 0,
+    cache_read_tokens INTEGER DEFAULT 0,
+    cache_creation_tokens INTEGER DEFAULT 0,
     total_tokens    INTEGER DEFAULT 0,
     success         INTEGER DEFAULT 1
 );
@@ -179,6 +181,9 @@ CREATE TABLE IF NOT EXISTS hourly_aggregates (
     input_tokens_sum  INTEGER DEFAULT 0,
     output_tokens_sum INTEGER DEFAULT 0,
     cached_tokens_sum INTEGER DEFAULT 0,
+    reasoning_tokens_sum INTEGER DEFAULT 0,
+    cache_read_tokens_sum INTEGER DEFAULT 0,
+    cache_creation_tokens_sum INTEGER DEFAULT 0,
     total_tokens_sum  INTEGER DEFAULT 0,
     PRIMARY KEY (hour_ts, client_key_id, provider, auth_id, model)
 );
@@ -232,11 +237,21 @@ func migrate(db *sql.DB) error {
 	if err := ensureColumn(db, "query_logs", "auth_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	for _, column := range []string{"reasoning_tokens", "cache_read_tokens", "cache_creation_tokens"} {
+		if err := ensureColumn(db, "query_logs", column, "INTEGER DEFAULT 0"); err != nil {
+			return err
+		}
+	}
 	if err := ensureColumn(db, "quota_exhaustion_events", "reset_at", "INTEGER DEFAULT 0"); err != nil {
 		return err
 	}
 	if err := migrateHourlyAggregates(db); err != nil {
 		return err
+	}
+	for _, column := range []string{"reasoning_tokens_sum", "cache_read_tokens_sum", "cache_creation_tokens_sum"} {
+		if err := ensureColumn(db, "hourly_aggregates", column, "INTEGER DEFAULT 0"); err != nil {
+			return err
+		}
 	}
 	return migrateDailyTokenPrices(db)
 }
@@ -375,60 +390,113 @@ func ClientKeyIDFromContext(ctx context.Context) int {
 	if ctx == nil {
 		return 0
 	}
-	v, _ := ctx.Value(ClientKeyIDCtxKey).(string)
-	id, _ := strconv.Atoi(v)
-	return id
+	switch v := ctx.Value(ClientKeyIDCtxKey).(type) {
+	case string:
+		id, _ := strconv.Atoi(v)
+		return id
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case int32:
+		return int(v)
+	case float64:
+		return int(v)
+	}
+	return clientKeyIDFromGinContext(ctx)
+}
+
+func clientKeyIDFromGinContext(ctx context.Context) int {
+	ginCtx, ok := ctx.Value("gin").(ginContextReader)
+	if !ok || ginCtx == nil {
+		return 0
+	}
+	value, exists := ginCtx.Get("accessMetadata")
+	if !exists {
+		return 0
+	}
+	switch metadata := value.(type) {
+	case map[string]string:
+		id, _ := strconv.Atoi(metadata["api_key_id"])
+		return id
+	case map[string]any:
+		id, _ := strconv.Atoi(fmt.Sprintf("%v", metadata["api_key_id"]))
+		return id
+	default:
+		return 0
+	}
 }
 
 // --- Write methods ---
 
 // InsertQueryLog records a single proxied request.
 func (s *Store) InsertQueryLog(ts int64, clientKeyID int, provider, authID, model string,
-	inputTokens, outputTokens, cachedTokens, totalTokens int64, success bool) {
+	inputTokens, outputTokens, cachedTokens, _ int64, success bool, detailedTokens ...int64) {
 	if s == nil {
 		return
 	}
+	reasoningTokens, cacheReadTokens, cacheCreationTokens := unpackDetailedTokens(detailedTokens)
 	succ := 1
 	if !success {
 		succ = 0
 	}
+	computedTotal := inputTokens + outputTokens + cachedTokens
 	_, _ = s.db.Exec(
 		`INSERT INTO query_logs
-		 (ts,client_key_id,provider,auth_id,model,input_tokens,output_tokens,cached_tokens,total_tokens,success)
-		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		 (ts,client_key_id,provider,auth_id,model,input_tokens,output_tokens,cached_tokens,reasoning_tokens,cache_read_tokens,cache_creation_tokens,total_tokens,success)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		ts, clientKeyID, provider, authID, model,
-		inputTokens, outputTokens, cachedTokens, totalTokens, succ)
+		inputTokens, outputTokens, cachedTokens, reasoningTokens, cacheReadTokens, cacheCreationTokens, computedTotal, succ)
 }
 
 // UpsertHourlyAggregate merges one request into the hourly rollup.
 func (s *Store) UpsertHourlyAggregate(hourTS int64, clientKeyID int, provider, authID, model string,
-	inputTokens, outputTokens, cachedTokens, totalTokens int64, success bool) {
+	inputTokens, outputTokens, cachedTokens, _ int64, success bool, detailedTokens ...int64) {
 	if s == nil {
 		return
 	}
+	reasoningTokens, cacheReadTokens, cacheCreationTokens := unpackDetailedTokens(detailedTokens)
 	sc, ec := int64(0), int64(0)
 	if success {
 		sc = 1
 	} else {
 		ec = 1
 	}
+	computedTotal := inputTokens + outputTokens + cachedTokens
 	_, _ = s.db.Exec(
 		`INSERT INTO hourly_aggregates
 		 (hour_ts,client_key_id,provider,auth_id,model,
 		  request_count,success_count,error_count,
-		  input_tokens_sum,output_tokens_sum,cached_tokens_sum,total_tokens_sum)
-		 VALUES (?,?,?,?,?,1,?,?,?,?,?,?)
+		  input_tokens_sum,output_tokens_sum,cached_tokens_sum,reasoning_tokens_sum,cache_read_tokens_sum,cache_creation_tokens_sum,total_tokens_sum)
+		 VALUES (?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(hour_ts,client_key_id,provider,auth_id,model) DO UPDATE SET
-		   request_count     = request_count     + 1,
-		   success_count     = success_count     + excluded.success_count,
-		   error_count       = error_count       + excluded.error_count,
-		   input_tokens_sum  = input_tokens_sum  + excluded.input_tokens_sum,
-		   output_tokens_sum = output_tokens_sum + excluded.output_tokens_sum,
-		   cached_tokens_sum = cached_tokens_sum + excluded.cached_tokens_sum,
-		   total_tokens_sum  = total_tokens_sum  + excluded.total_tokens_sum`,
+		   request_count             = request_count             + 1,
+		   success_count             = success_count             + excluded.success_count,
+		   error_count               = error_count               + excluded.error_count,
+		   input_tokens_sum          = input_tokens_sum          + excluded.input_tokens_sum,
+		   output_tokens_sum         = output_tokens_sum         + excluded.output_tokens_sum,
+		   cached_tokens_sum         = cached_tokens_sum         + excluded.cached_tokens_sum,
+		   reasoning_tokens_sum      = reasoning_tokens_sum      + excluded.reasoning_tokens_sum,
+		   cache_read_tokens_sum     = cache_read_tokens_sum     + excluded.cache_read_tokens_sum,
+		   cache_creation_tokens_sum = cache_creation_tokens_sum + excluded.cache_creation_tokens_sum,
+		   total_tokens_sum          = total_tokens_sum          + excluded.total_tokens_sum`,
 		hourTS, clientKeyID, provider, authID, model,
 		sc, ec,
-		inputTokens, outputTokens, cachedTokens, totalTokens)
+		inputTokens, outputTokens, cachedTokens, reasoningTokens, cacheReadTokens, cacheCreationTokens, computedTotal)
+}
+
+func unpackDetailedTokens(values []int64) (int64, int64, int64) {
+	var reasoningTokens, cacheReadTokens, cacheCreationTokens int64
+	if len(values) > 0 {
+		reasoningTokens = values[0]
+	}
+	if len(values) > 1 {
+		cacheReadTokens = values[1]
+	}
+	if len(values) > 2 {
+		cacheCreationTokens = values[2]
+	}
+	return reasoningTokens, cacheReadTokens, cacheCreationTokens
 }
 
 // InsertQuotaEvent records a 429 quota-exhaustion event.
@@ -475,31 +543,37 @@ func (s *Store) latestQuotaResetAt(provider, authID string, afterTS int64) int64
 
 // SummaryRow holds aggregate totals for a time window.
 type SummaryRow struct {
-	Requests     int64 `json:"requests"`
-	SuccessCount int64 `json:"success_count"`
-	ErrorCount   int64 `json:"error_count"`
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
-	CachedTokens int64 `json:"cached_tokens"`
-	TotalTokens  int64 `json:"total_tokens"`
+	Requests            int64 `json:"requests"`
+	SuccessCount        int64 `json:"success_count"`
+	ErrorCount          int64 `json:"error_count"`
+	InputTokens         int64 `json:"input_tokens"`
+	OutputTokens        int64 `json:"output_tokens"`
+	CachedTokens        int64 `json:"cached_tokens"`
+	ReasoningTokens     int64 `json:"reasoning_tokens"`
+	CacheReadTokens     int64 `json:"cache_read_tokens"`
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+	TotalTokens         int64 `json:"total_tokens"`
 }
 
 // HourlyAggregateRow mirrors one row in hourly_aggregates.
 type HourlyAggregateRow struct {
-	HourTS          int64  `json:"hour_ts"`
-	BucketTS        int64  `json:"bucket_ts,omitempty"`
-	BucketSeconds   int64  `json:"bucket_seconds,omitempty"`
-	ClientKeyID     int    `json:"client_key_id"`
-	Provider        string `json:"provider"`
-	AuthID          string `json:"auth_id"`
-	Model           string `json:"model"`
-	RequestCount    int64  `json:"request_count"`
-	SuccessCount    int64  `json:"success_count"`
-	ErrorCount      int64  `json:"error_count"`
-	InputTokensSum  int64  `json:"input_tokens_sum"`
-	OutputTokensSum int64  `json:"output_tokens_sum"`
-	CachedTokensSum int64  `json:"cached_tokens_sum"`
-	TotalTokensSum  int64  `json:"total_tokens_sum"`
+	HourTS                 int64  `json:"hour_ts"`
+	BucketTS               int64  `json:"bucket_ts,omitempty"`
+	BucketSeconds          int64  `json:"bucket_seconds,omitempty"`
+	ClientKeyID            int    `json:"client_key_id"`
+	Provider               string `json:"provider"`
+	AuthID                 string `json:"auth_id"`
+	Model                  string `json:"model"`
+	RequestCount           int64  `json:"request_count"`
+	SuccessCount           int64  `json:"success_count"`
+	ErrorCount             int64  `json:"error_count"`
+	InputTokensSum         int64  `json:"input_tokens_sum"`
+	OutputTokensSum        int64  `json:"output_tokens_sum"`
+	CachedTokensSum        int64  `json:"cached_tokens_sum"`
+	ReasoningTokensSum     int64  `json:"reasoning_tokens_sum"`
+	CacheReadTokensSum     int64  `json:"cache_read_tokens_sum"`
+	CacheCreationTokensSum int64  `json:"cache_creation_tokens_sum"`
+	TotalTokensSum         int64  `json:"total_tokens_sum"`
 }
 
 // QuotaEventRow mirrors one row in quota_exhaustion_events.
@@ -535,11 +609,15 @@ func (s *Store) Summary(fromTS, toTS int64) (*SummaryRow, error) {
 		       COALESCE(SUM(input_tokens),0),
 		       COALESCE(SUM(output_tokens),0),
 		       COALESCE(SUM(cached_tokens),0),
-		       COALESCE(SUM(total_tokens),0)
+		       COALESCE(SUM(reasoning_tokens),0),
+		       COALESCE(SUM(cache_read_tokens),0),
+		       COALESCE(SUM(cache_creation_tokens),0),
+		       COALESCE(SUM(input_tokens),0) + COALESCE(SUM(output_tokens),0) + COALESCE(SUM(cached_tokens),0)
 		FROM query_logs WHERE ts >= ? AND ts < ?`, fromTS, toTS)
 	var r SummaryRow
 	if err := row.Scan(&r.Requests, &r.SuccessCount, &r.ErrorCount,
-		&r.InputTokens, &r.OutputTokens, &r.CachedTokens, &r.TotalTokens); err != nil {
+		&r.InputTokens, &r.OutputTokens, &r.CachedTokens,
+		&r.ReasoningTokens, &r.CacheReadTokens, &r.CacheCreationTokens, &r.TotalTokens); err != nil {
 		return &SummaryRow{}, nil
 	}
 	return &r, nil
@@ -562,7 +640,9 @@ func (s *Store) queryLogBucketRows(fromTS, toTS, bucketSeconds int64) ([]HourlyA
 		SELECT (ts / ?) * ? AS bucket_ts,client_key_id,provider,auth_id,model,
 		       COUNT(*),COALESCE(SUM(success),0),COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),0),
 		       COALESCE(SUM(input_tokens),0),COALESCE(SUM(output_tokens),0),
-		       COALESCE(SUM(cached_tokens),0),COALESCE(SUM(total_tokens),0)
+		       COALESCE(SUM(cached_tokens),0),COALESCE(SUM(reasoning_tokens),0),
+		       COALESCE(SUM(cache_read_tokens),0),COALESCE(SUM(cache_creation_tokens),0),
+		       COALESCE(SUM(input_tokens),0)+COALESCE(SUM(output_tokens),0)+COALESCE(SUM(cached_tokens),0)
 		FROM query_logs WHERE ts >= ? AND ts < ?
 		GROUP BY bucket_ts,client_key_id,provider,auth_id,model
 		ORDER BY bucket_ts DESC`, bucketSeconds, bucketSeconds, fromTS, toTS)
@@ -577,7 +657,9 @@ func (s *Store) hourlyAggregateBucketRows(fromTS, toTS, bucketSeconds int64) ([]
 	rows, err := s.db.Query(`
 		SELECT hour_ts,client_key_id,provider,auth_id,model,
 		       request_count,success_count,error_count,
-		       input_tokens_sum,output_tokens_sum,cached_tokens_sum,total_tokens_sum
+		       input_tokens_sum,output_tokens_sum,cached_tokens_sum,
+		       reasoning_tokens_sum,cache_read_tokens_sum,cache_creation_tokens_sum,
+		       input_tokens_sum+output_tokens_sum+cached_tokens_sum
 		FROM hourly_aggregates WHERE hour_ts >= ? AND hour_ts < ?
 		ORDER BY hour_ts DESC`, fromTS, toTS)
 	if err != nil {
@@ -593,7 +675,9 @@ func scanAggregateRows(rows *sql.Rows, bucketSeconds int64) ([]HourlyAggregateRo
 		var r HourlyAggregateRow
 		if err := rows.Scan(&r.HourTS, &r.ClientKeyID, &r.Provider, &r.AuthID, &r.Model,
 			&r.RequestCount, &r.SuccessCount, &r.ErrorCount,
-			&r.InputTokensSum, &r.OutputTokensSum, &r.CachedTokensSum, &r.TotalTokensSum); err != nil {
+			&r.InputTokensSum, &r.OutputTokensSum, &r.CachedTokensSum,
+			&r.ReasoningTokensSum, &r.CacheReadTokensSum, &r.CacheCreationTokensSum,
+			&r.TotalTokensSum); err != nil {
 			continue
 		}
 		r.BucketTS = r.HourTS
@@ -603,55 +687,114 @@ func scanAggregateRows(rows *sql.Rows, bucketSeconds int64) ([]HourlyAggregateRo
 	return out, rows.Err()
 }
 
-// ByModel returns hourly_aggregates summed by (model, provider) for [fromTS, toTS).
+// ByModel returns usage summed by (model, provider) for [fromTS, toTS).
 func (s *Store) ByModel(fromTS, toTS int64) ([]map[string]any, error) {
 	if s == nil {
 		return nil, nil
 	}
+	if toTS-fromTS <= analyticsFineBucketMaxRange {
+		return s.byModelFromQueryLogs(fromTS, toTS)
+	}
+	return s.byModelFromHourlyAggregates(fromTS, toTS)
+}
+
+func (s *Store) byModelFromQueryLogs(fromTS, toTS int64) ([]map[string]any, error) {
+	rows, err := s.db.Query(`
+		SELECT model,provider,
+		       COUNT(*),COALESCE(SUM(success),0),COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),0),
+		       COALESCE(SUM(input_tokens),0),COALESCE(SUM(output_tokens),0),
+		       COALESCE(SUM(cached_tokens),0),COALESCE(SUM(reasoning_tokens),0),
+		       COALESCE(SUM(cache_read_tokens),0),COALESCE(SUM(cache_creation_tokens),0),
+		       COALESCE(SUM(input_tokens),0)+COALESCE(SUM(output_tokens),0)+COALESCE(SUM(cached_tokens),0)
+		FROM query_logs WHERE ts >= ? AND ts < ?
+		GROUP BY model,provider ORDER BY COUNT(*) DESC`, fromTS, toTS)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanByModelRows(rows)
+}
+
+func (s *Store) byModelFromHourlyAggregates(fromTS, toTS int64) ([]map[string]any, error) {
 	rows, err := s.db.Query(`
 		SELECT model,provider,
 		       SUM(request_count),SUM(success_count),SUM(error_count),
 		       SUM(input_tokens_sum),SUM(output_tokens_sum),
-		       SUM(cached_tokens_sum),SUM(total_tokens_sum)
+		       SUM(cached_tokens_sum),SUM(reasoning_tokens_sum),
+		       SUM(cache_read_tokens_sum),SUM(cache_creation_tokens_sum),
+		       SUM(input_tokens_sum)+SUM(output_tokens_sum)+SUM(cached_tokens_sum)
 		FROM hourly_aggregates WHERE hour_ts >= ? AND hour_ts < ?
 		GROUP BY model,provider ORDER BY SUM(request_count) DESC`, fromTS, toTS)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	return scanByModelRows(rows)
+}
+
+func scanByModelRows(rows *sql.Rows) ([]map[string]any, error) {
 	var out []map[string]any
 	for rows.Next() {
 		var model, provider string
-		var req, succ, errC, inp, outp, cached, total int64
-		if err := rows.Scan(&model, &provider, &req, &succ, &errC, &inp, &outp, &cached, &total); err != nil {
+		var req, succ, errC, inp, outp, cached, reasoning, cacheRead, cacheCreation, total int64
+		if err := rows.Scan(&model, &provider, &req, &succ, &errC, &inp, &outp, &cached, &reasoning, &cacheRead, &cacheCreation, &total); err != nil {
 			continue
 		}
 		out = append(out, map[string]any{
 			"model": model, "provider": provider,
 			"request_count": req, "success_count": succ, "error_count": errC,
 			"input_tokens_sum": inp, "output_tokens_sum": outp,
-			"cached_tokens_sum": cached, "total_tokens_sum": total,
+			"cached_tokens_sum": cached, "reasoning_tokens_sum": reasoning,
+			"cache_read_tokens_sum": cacheRead, "cache_creation_tokens_sum": cacheCreation,
+			"total_tokens_sum": total,
 		})
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
-// ByClient returns hourly_aggregates summed by client_key_id for [fromTS, toTS).
+// ByClient returns usage summed by client_key_id for [fromTS, toTS).
 func (s *Store) ByClient(fromTS, toTS int64) ([]map[string]any, error) {
 	if s == nil {
 		return nil, nil
 	}
+	if toTS-fromTS <= analyticsFineBucketMaxRange {
+		return s.byClientFromQueryLogs(fromTS, toTS)
+	}
+	return s.byClientFromHourlyAggregates(fromTS, toTS)
+}
+
+func (s *Store) byClientFromQueryLogs(fromTS, toTS int64) ([]map[string]any, error) {
+	rows, err := s.db.Query(`
+		SELECT client_key_id,
+		       COUNT(*),COALESCE(SUM(success),0),COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),0),
+		       COALESCE(SUM(input_tokens),0),COALESCE(SUM(output_tokens),0),
+		       COALESCE(SUM(cached_tokens),0),
+		       COALESCE(SUM(input_tokens),0)+COALESCE(SUM(output_tokens),0)+COALESCE(SUM(cached_tokens),0)
+		FROM query_logs WHERE ts >= ? AND ts < ?
+		GROUP BY client_key_id ORDER BY COUNT(*) DESC`, fromTS, toTS)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanByClientRows(rows)
+}
+
+func (s *Store) byClientFromHourlyAggregates(fromTS, toTS int64) ([]map[string]any, error) {
 	rows, err := s.db.Query(`
 		SELECT client_key_id,
 		       SUM(request_count),SUM(success_count),SUM(error_count),
 		       SUM(input_tokens_sum),SUM(output_tokens_sum),
-		       SUM(cached_tokens_sum),SUM(total_tokens_sum)
+		       SUM(cached_tokens_sum),SUM(input_tokens_sum)+SUM(output_tokens_sum)+SUM(cached_tokens_sum)
 		FROM hourly_aggregates WHERE hour_ts >= ? AND hour_ts < ?
 		GROUP BY client_key_id ORDER BY SUM(request_count) DESC`, fromTS, toTS)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	return scanByClientRows(rows)
+}
+
+func scanByClientRows(rows *sql.Rows) ([]map[string]any, error) {
 	var out []map[string]any
 	for rows.Next() {
 		var clientKeyID int
@@ -666,7 +809,7 @@ func (s *Store) ByClient(fromTS, toTS int64) ([]map[string]any, error) {
 			"cached_tokens_sum": cached, "total_tokens_sum": total,
 		})
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // QuotaEvents returns the most recent quota exhaustion events.

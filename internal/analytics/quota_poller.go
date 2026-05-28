@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,45 +18,53 @@ import (
 
 // QuotaPoller periodically queries provider quota APIs using OAuth tokens from the auth manager.
 type QuotaPoller struct {
-	store   *Store
-	manager *coreauth.Manager
-	client  *http.Client
+	store        *Store
+	manager      *coreauth.Manager
+	client       *http.Client
+	debugLogPath string
 }
 
 // quotaPollInterval is how often we re-query upstream provider quota endpoints.
-// 5 minutes matches the analytics fine-bucket granularity so we get enough
-// adjacent snapshots to produce many independent price-solve equations per hour.
-const quotaPollInterval = 5 * time.Minute
+const quotaPollInterval = time.Duration(analyticsFiveMinuteBucketSeconds) * time.Second
 
-// StartQuotaPoller creates and starts a QuotaPoller. It polls immediately on start,
-// then every quotaPollInterval. Stops when ctx is cancelled.
+// StartQuotaPoller creates and starts a QuotaPoller. It polls on aligned quotaPollInterval boundaries.
 func StartQuotaPoller(ctx context.Context, store *Store, manager *coreauth.Manager) {
 	if store == nil || manager == nil {
 		return
 	}
 	p := &QuotaPoller{
-		store:   store,
-		manager: manager,
-		client:  &http.Client{Timeout: 30 * time.Second},
+		store:        store,
+		manager:      manager,
+		client:       &http.Client{Timeout: 30 * time.Second},
+		debugLogPath: filepath.Join(filepath.Dir(store.DBPath()), "quota-response-debug.jsonl"),
 	}
 	go p.run(ctx)
 }
 
 func (p *QuotaPoller) run(ctx context.Context) {
-	p.pollAll(ctx)
-	ticker := time.NewTicker(quotaPollInterval)
-	defer ticker.Stop()
 	for {
+		nextPoll := nextQuotaPollBoundary(time.Now())
+		timer := time.NewTimer(time.Until(nextPoll))
 		select {
-		case <-ticker.C:
-			p.pollAll(ctx)
+		case <-timer.C:
+			p.pollAll(ctx, nextPoll.Unix())
 		case <-ctx.Done():
+			timer.Stop()
 			return
 		}
 	}
 }
 
-func (p *QuotaPoller) pollAll(ctx context.Context) {
+func nextQuotaPollBoundary(now time.Time) time.Time {
+	intervalSeconds := int64(quotaPollInterval / time.Second)
+	nextTS := floorBucket(now.Unix(), intervalSeconds)
+	if now.Unix()%intervalSeconds != 0 || now.Nanosecond() != 0 {
+		nextTS += intervalSeconds
+	}
+	return time.Unix(nextTS, 0)
+}
+
+func (p *QuotaPoller) pollAll(ctx context.Context, ts int64) {
 	for _, auth := range p.manager.List() {
 		token, _ := auth.Metadata["access_token"].(string)
 		if token == "" {
@@ -62,17 +72,17 @@ func (p *QuotaPoller) pollAll(ctx context.Context) {
 		}
 		switch auth.Provider {
 		case "claude", "antigravity":
-			p.pollClaude(ctx, auth.ID, token)
+			p.pollClaude(ctx, ts, auth.ID, token)
 		case "codex":
-			p.pollCodex(ctx, auth.ID, token)
+			p.pollCodex(ctx, ts, auth.ID, token)
 		case "gemini-cli":
-			p.pollGeminiCLI(ctx, auth.ID, token)
+			p.pollGeminiCLI(ctx, ts, auth.ID, token)
 		}
 	}
 }
 
 // pollClaude calls api.anthropic.com/api/oauth/usage.
-func (p *QuotaPoller) pollClaude(ctx context.Context, authID, token string) {
+func (p *QuotaPoller) pollClaude(ctx context.Context, ts int64, authID, token string) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"https://api.anthropic.com/api/oauth/usage", nil)
 	if err != nil {
@@ -87,17 +97,17 @@ func (p *QuotaPoller) pollClaude(ctx context.Context, authID, token string) {
 		return
 	}
 	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	p.logQuotaResponse(ts, "claude", authID, req.URL.String(), resp.StatusCode, body)
 	if resp.StatusCode != http.StatusOK {
 		return
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 
-	ts := time.Now().Unix()
 	captureClaudeQuotaSnapshots(p.store, ts, "claude", authID, body)
 }
 
 // pollCodex calls chatgpt.com/backend-api/wham/usage.
-func (p *QuotaPoller) pollCodex(ctx context.Context, authID, token string) {
+func (p *QuotaPoller) pollCodex(ctx context.Context, ts int64, authID, token string) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"https://chatgpt.com/backend-api/wham/usage", nil)
 	if err != nil {
@@ -105,6 +115,7 @@ func (p *QuotaPoller) pollCodex(ctx context.Context, authID, token string) {
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "codex_cli_rs/0.76.0 (Debian 13.0.0; x86_64) WindowsTerminal")
 
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -112,17 +123,17 @@ func (p *QuotaPoller) pollCodex(ctx context.Context, authID, token string) {
 		return
 	}
 	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	p.logQuotaResponse(ts, "codex", authID, req.URL.String(), resp.StatusCode, body)
 	if resp.StatusCode != http.StatusOK {
 		return
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 
-	ts := time.Now().Unix()
 	captureCodexQuotaSnapshots(p.store, ts, "codex", authID, body)
 }
 
 // pollGeminiCLI calls cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota.
-func (p *QuotaPoller) pollGeminiCLI(ctx context.Context, authID, token string) {
+func (p *QuotaPoller) pollGeminiCLI(ctx context.Context, ts int64, authID, token string) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		"https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
 		strings.NewReader("{}"))
@@ -138,13 +149,51 @@ func (p *QuotaPoller) pollGeminiCLI(ctx context.Context, authID, token string) {
 		return
 	}
 	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	p.logQuotaResponse(ts, "gemini-cli", authID, req.URL.String(), resp.StatusCode, body)
 	if resp.StatusCode != http.StatusOK {
 		return
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 
-	ts := time.Now().Unix()
 	captureGeminiCLIQuotaSnapshots(p.store, ts, "gemini-cli", authID, body)
+}
+
+func (p *QuotaPoller) logQuotaResponse(ts int64, provider, authID, endpoint string, statusCode int, body []byte) {
+	if p.debugLogPath == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(p.debugLogPath), 0o700); err != nil {
+		log.Debugf("analytics: create quota debug log dir failed: %v", err)
+		return
+	}
+	entry := map[string]any{
+		"ts":          ts,
+		"time":        time.Unix(ts, 0).Format(time.RFC3339),
+		"provider":    provider,
+		"auth_id":     authID,
+		"endpoint":    endpoint,
+		"status_code": statusCode,
+	}
+	var parsed any
+	if err := json.Unmarshal(body, &parsed); err == nil {
+		entry["body"] = parsed
+	} else {
+		entry["body"] = string(body)
+	}
+	line, err := json.Marshal(entry)
+	if err != nil {
+		log.Debugf("analytics: marshal quota debug log failed: %v", err)
+		return
+	}
+	file, err := os.OpenFile(p.debugLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		log.Debugf("analytics: open quota debug log failed: %v", err)
+		return
+	}
+	defer file.Close()
+	if _, err := file.Write(append(line, '\n')); err != nil {
+		log.Debugf("analytics: write quota debug log failed: %v", err)
+	}
 }
 
 // extractAndStore tries common field patterns to pull a used_percent value.

@@ -709,7 +709,6 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/analytics/quota-events", s.mgmt.GetAnalyticsQuotaEvents)
 		mgmt.GET("/analytics/quota-snapshots", s.mgmt.GetAnalyticsQuotaSnapshots)
 		mgmt.GET("/analytics/token-prices", s.mgmt.GetAnalyticsTokenPrices)
-		mgmt.POST("/analytics/token-prices/solve", s.mgmt.PostAnalyticsSolveTokenPrices)
 		mgmt.GET("/analytics/provider-quota-lines", s.mgmt.GetAnalyticsProviderQuotaLines)
 		mgmt.GET("/analytics/config", s.mgmt.GetAnalyticsConfig)
 		mgmt.PUT("/analytics/config", s.mgmt.PutAnalyticsConfig)

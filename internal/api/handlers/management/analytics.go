@@ -82,6 +82,20 @@ func (h *Handler) GetAnalyticsByClient(c *gin.Context) {
 	if rows == nil {
 		rows = []map[string]any{}
 	}
+	clientKeyNames := h.clientAPIKeyNamesByID()
+	for _, row := range rows {
+		id := clientKeyIDFromAnalyticsRow(row)
+		name := clientKeyNames[id]
+		row["client_key_name"] = name
+		switch {
+		case id == 0:
+			row["client_key_label"] = ""
+		case name != "":
+			row["client_key_label"] = name
+		default:
+			row["client_key_label"] = "#" + strconv.Itoa(id)
+		}
+	}
 	c.JSON(http.StatusOK, rows)
 }
 
@@ -132,14 +146,8 @@ func (h *Handler) GetAnalyticsTokenPrices(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "analytics not enabled"})
 		return
 	}
-	date := c.Query("date")
-	if date == "" {
-		date = time.Now().Format("2006-01-02")
-	} else if _, err := time.Parse("2006-01-02", date); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date"})
-		return
-	}
-	rows, err := store.TokenPrices(date)
+	from, to := parseTimeRange(c, 24*time.Hour)
+	rows, err := store.OfficialTokenPricesForUsage(from, to)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -148,41 +156,6 @@ func (h *Handler) GetAnalyticsTokenPrices(c *gin.Context) {
 		rows = []analytics.TokenPriceRow{}
 	}
 	c.JSON(http.StatusOK, rows)
-}
-
-func (h *Handler) PostAnalyticsSolveTokenPrices(c *gin.Context) {
-	store := analytics.Get()
-	if store == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "analytics not enabled"})
-		return
-	}
-	dateText := c.Query("date")
-	var date time.Time
-	var err error
-	if dateText == "" {
-		date = time.Now()
-	} else {
-		date, err = time.Parse("2006-01-02", dateText)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date"})
-			return
-		}
-	}
-	resp, err := store.SolveTokenPricesForDateWithResult(date)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if resp == nil {
-		resp = &analytics.TokenPriceSolveResponse{PriceDate: date.Format("2006-01-02"), Status: "no_token_usage", Rows: []analytics.TokenPriceRow{}, Providers: []analytics.TokenPriceSolveProviderResult{}}
-	}
-	if resp.Rows == nil {
-		resp.Rows = []analytics.TokenPriceRow{}
-	}
-	if resp.Providers == nil {
-		resp.Providers = []analytics.TokenPriceSolveProviderResult{}
-	}
-	c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) GetAnalyticsProviderQuotaLines(c *gin.Context) {
@@ -271,6 +244,36 @@ func (h *Handler) PutAnalyticsConfig(c *gin.Context) {
 }
 
 // --- helpers ---
+
+func (h *Handler) clientAPIKeyNamesByID() map[int]string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make(map[int]string, len(h.cfg.APIKeys))
+	for _, entry := range h.cfg.APIKeys {
+		id, err := strconv.Atoi(entry.ID)
+		if err != nil || id <= 0 || entry.Name == "" {
+			continue
+		}
+		out[id] = entry.Name
+	}
+	return out
+}
+
+func clientKeyIDFromAnalyticsRow(row map[string]any) int {
+	switch v := row["client_key_id"].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case string:
+		id, _ := strconv.Atoi(v)
+		return id
+	default:
+		return 0
+	}
+}
 
 func parseTimeRange(c *gin.Context, defaultWindow time.Duration) (from, to int64) {
 	now := time.Now()

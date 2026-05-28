@@ -8,6 +8,10 @@
 - 整理需要同步到 `prompts/version_design.md` 的内容。
 - 保留阶段性理解，方便后续继续设计和实现。
 
+## 当前需求文档
+
+- [`analytics_requirements.md`](analytics_requirements.md)：当前“用量统计”功能的实现准则。`prompts/version_design.md` 保留历史原始想法；如果两者冲突，以当前需求文档为准。
+
 ## 当前上下文
 
 用户希望在 CLIProxyAPI 上拥有 token 使用量统计功能。当前仓库已有 usage 采集管线，主要从模型响应中的 usage 字段被动解析 token 用量；`/v0/management/usage-queue` 读取本地 usage 队列，`/v0/management/api-key-usage` 读取本地内存请求计数。通用 quota 状态主要根据上游错误推断，Antigravity credits 是少数主动查询额度的特例。
