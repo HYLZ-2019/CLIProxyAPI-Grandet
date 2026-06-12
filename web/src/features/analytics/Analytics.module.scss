@@ -329,6 +329,14 @@
   font-weight: 600;
 }
 
+.quotaHeaderControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: $spacing-sm;
+}
+
 .quotaSelectLabel {
   display: flex;
   align-items: center;

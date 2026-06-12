@@ -4,9 +4,16 @@ import type { ProviderQuotaSeries } from '@/services/api';
 import { COLORS } from '../constants';
 import { formatNumber, formatPercent, formatTimestamp, formatUSD } from '../formatters';
 import { toQuotaTooltipData } from '../transforms';
-import type { UsageWindow } from '../types';
+import type { QuotaSeriesVisibility, UsageWindow } from '../types';
 import { ProviderQuotaTooltip } from './ProviderQuotaTooltip';
 import styles from '../Analytics.module.scss';
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const middle = Math.floor(values.length / 2);
+  if (values.length % 2 === 1) return values[middle];
+  return (values[middle - 1] + values[middle]) / 2;
+}
 
 export function ProviderQuotaChart(props: {
   series: ProviderQuotaSeries;
@@ -14,6 +21,7 @@ export function ProviderQuotaChart(props: {
   rangeLabel: string;
   show429Dots: boolean;
   showResetMarkers: boolean;
+  seriesVisibility: QuotaSeriesVisibility;
 }) {
   const { t } = useTranslation();
   const data = toQuotaTooltipData(props.series);
@@ -24,6 +32,11 @@ export function ProviderQuotaChart(props: {
     ? (props.series.reset_markers || []).map((point) => ({ x_ts: point.reset_at, resetDot: point.points }))
     : [];
   const maxCumulativeUSD = data.reduce((max, point) => Math.max(max, point.cliproxy_cumulative_usd ?? 0), 0);
+  const estimatedPointUSDValues = data
+    .map((point) => point.estimated_quota_usd_point)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b);
+  const medianEstimatedPointUSD = median(estimatedPointUSDValues);
   const inputUSDPerMillion =
     Number.isFinite(props.series.input_usd_per_million) && props.series.input_usd_per_million > 0
       ? props.series.input_usd_per_million
@@ -42,7 +55,8 @@ export function ProviderQuotaChart(props: {
         : '—';
   const estimatedQuotaInputMTokens =
     inputUSDPerMillion > 0 && estimatedQuotaUSD > 0 ? estimatedQuotaUSD / inputUSDPerMillion : 0;
-  const usdAxisMax = Math.max(maxCumulativeUSD, estimatedQuotaUSD, 0.01);
+  const visualQuotaUSD = medianEstimatedPointUSD > 0 ? medianEstimatedPointUSD : estimatedQuotaUSD;
+  const usdAxisMax = Math.max(visualQuotaUSD, maxCumulativeUSD * 1.05, 0.01);
 
   return (
     <div className={styles.providerCard}>
@@ -98,13 +112,31 @@ export function ProviderQuotaChart(props: {
                   bucketUSDLabel={t('analytics.quota_lines.bucket_usd')}
                   quotaLabel={t('analytics.quota_lines.quota_used')}
                   cumulativeLabel={t('analytics.quota_lines.cliproxy_cumulative')}
+                  estimatedPointLabel={t('analytics.quota_lines.estimated_quota_usd_point')}
                   eventsLabel={t('analytics.quota_lines.quota_429')}
                 />
               }
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Line yAxisId="percent" type="monotone" dataKey="quota_used_percent" name={t('analytics.quota_lines.quota_used')} stroke={COLORS.quota} dot={false} activeDot={{ r: 3 }} strokeWidth={2} />
-            <Line yAxisId="usd" type="monotone" dataKey="cliproxy_cumulative_usd" name={t('analytics.quota_lines.cliproxy_cumulative')} stroke={COLORS.cumulative} dot={false} activeDot={{ r: 3 }} strokeWidth={2} />
+            {props.seriesVisibility.quotaUsed && (
+              <Line yAxisId="percent" type="monotone" dataKey="quota_used_percent" name={t('analytics.quota_lines.quota_used')} stroke={COLORS.quota} dot={false} activeDot={{ r: 3 }} strokeWidth={2} />
+            )}
+            {props.seriesVisibility.cumulativeUSD && (
+              <Line yAxisId="usd" type="monotone" dataKey="cliproxy_cumulative_usd" name={t('analytics.quota_lines.cliproxy_cumulative')} stroke={COLORS.cumulative} dot={false} activeDot={{ r: 3 }} strokeWidth={2} />
+            )}
+            {props.seriesVisibility.estimatedQuotaUSD && (
+              <Line
+                yAxisId="usd"
+                type="monotone"
+                dataKey="estimated_quota_usd_point"
+                name={t('analytics.quota_lines.estimated_quota_usd_point')}
+                stroke={COLORS.estimatedQuota}
+                dot={false}
+                activeDot={{ r: 3 }}
+                strokeWidth={2}
+                connectNulls
+              />
+            )}
             {eventData.map((point) => (
               <ReferenceDot key={`event-${point.x_ts}`} yAxisId="percent" x={point.x_ts} y={point.eventDot} r={4} fill={COLORS.error} stroke="none" />
             ))}

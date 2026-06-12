@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
 import type { TokenPriceRow } from '@/services/api';
-import { DEFAULT_TREND_SERIES_VISIBILITY } from '../constants';
+import { DEFAULT_QUOTA_SERIES_VISIBILITY, DEFAULT_TREND_SERIES_VISIBILITY } from '../constants';
 import {
   buildPriceAuthOptions,
   buildQuotaAuthOptions,
   findQuotaSeries,
   priceAuthKey,
 } from '../transforms';
-import type { TrendSeriesVisibility } from '../types';
+import type { QuotaSeriesVisibility, TrendSeriesVisibility } from '../types';
 import type { ProviderQuotaSeries } from '@/services/api';
 
 export function useAnalyticsSelections(
@@ -19,6 +19,9 @@ export function useAnalyticsSelections(
   const [showResetMarkers, setShowResetMarkers] = useState(true);
   const [trendSeriesVisibility, setTrendSeriesVisibility] = useState<TrendSeriesVisibility>(
     DEFAULT_TREND_SERIES_VISIBILITY,
+  );
+  const [quotaSeriesVisibility, setQuotaSeriesVisibility] = useState<QuotaSeriesVisibility>(
+    DEFAULT_QUOTA_SERIES_VISIBILITY,
   );
   const [expandedModelKey, setExpandedModelKey] = useState('');
   const [selectedQuotaAuthKey, setSelectedQuotaAuthKey] = useState('');
@@ -62,6 +65,8 @@ export function useAnalyticsSelections(
     setShowResetMarkers,
     trendSeriesVisibility,
     setTrendSeriesVisibility,
+    quotaSeriesVisibility,
+    setQuotaSeriesVisibility,
     expandedModelKey,
     setExpandedModelKey,
     quotaAuthOptions,

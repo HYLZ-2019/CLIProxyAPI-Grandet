@@ -37,7 +37,7 @@ var clients = []scenarioClient{
 }
 
 var models = []scenarioModel{
-	{provider: "claude", authID: "personal@claude", model: "claude-opus-4-7", avgIn: 3200, avgOut: 900, prices: [3]float64{5, 25, 0.5}},
+	{provider: "claude", authID: "personal@claude", model: "claude-opus-4-8", avgIn: 3200, avgOut: 900, prices: [3]float64{5, 25, 0.5}},
 	{provider: "claude", authID: "personal@claude", model: "claude-sonnet-4-6", avgIn: 2400, avgOut: 750, prices: [3]float64{3, 15, 0.3}},
 	{provider: "codex", authID: "team-alpha@codex", model: "gpt-5-codex", avgIn: 1900, avgOut: 650, prices: [3]float64{1.25, 10, 0.125}},
 	{provider: "codex", authID: "team-alpha@codex", model: "gpt-5", avgIn: 1100, avgOut: 450, prices: [3]float64{1.25, 10, 0.125}},
@@ -146,7 +146,7 @@ func seedQuotaSnapshotsAndEvents(store *analytics.Store, rng *rand.Rand, now tim
 		"gemini-cli": "team-beta@gcli",
 	}
 	providerModel := map[string]string{
-		"claude":     "claude-opus-4-7",
+		"claude":     "claude-opus-4-8",
 		"codex":      "gpt-5-codex",
 		"gemini-cli": "gemini-2.5-pro",
 	}

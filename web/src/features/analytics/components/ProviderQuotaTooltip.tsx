@@ -1,5 +1,5 @@
 import { formatBucketSize, formatDateTime, formatPercent, formatUSD } from '../formatters';
-import { findNearestQuotaPoint, isQuotaBucketPoint } from '../transforms';
+import { findNearestQuotaEstimatePoint, findNearestQuotaPoint, isQuotaBucketPoint } from '../transforms';
 import type { ProviderQuotaTooltipPayload, ProviderQuotaTooltipPoint } from '../types';
 import styles from '../Analytics.module.scss';
 
@@ -12,19 +12,30 @@ export function ProviderQuotaTooltip(props: {
   bucketUSDLabel: string;
   quotaLabel: string;
   cumulativeLabel: string;
+  estimatedPointLabel: string;
   eventsLabel: string;
 }) {
   if (!props.active) return null;
 
   const linePayload = props.payload?.find(
     (item) =>
-      (item.dataKey === 'quota_used_percent' || item.dataKey === 'cliproxy_cumulative_usd') &&
+      (item.dataKey === 'quota_used_percent' ||
+        item.dataKey === 'cliproxy_cumulative_usd' ||
+        item.dataKey === 'estimated_quota_usd_point') &&
       isQuotaBucketPoint(item.payload),
   )?.payload;
   const labelTS = Number(linePayload?.x_ts ?? props.label ?? 0);
   const point = linePayload ?? findNearestQuotaPoint(props.data, labelTS);
   const ts = Number(point?.x_ts ?? labelTS);
   if (!Number.isFinite(ts) || ts <= 0) return null;
+
+  const ownEstimatedPoint = point?.estimated_quota_usd_point;
+  const nearestEstimatePoint =
+    typeof ownEstimatedPoint === 'number' && Number.isFinite(ownEstimatedPoint) && ownEstimatedPoint > 0
+      ? point
+      : findNearestQuotaEstimatePoint(props.data, ts);
+  const estimatedPoint = nearestEstimatePoint?.estimated_quota_usd_point;
+  const hasEstimate = typeof estimatedPoint === 'number' && Number.isFinite(estimatedPoint) && estimatedPoint > 0;
 
   return (
     <div className={styles.tooltipBox}>
@@ -41,6 +52,11 @@ export function ProviderQuotaTooltip(props: {
       <div>
         {props.cumulativeLabel}: {formatUSD(point?.cliproxy_cumulative_usd ?? 0)}
       </div>
+      {hasEstimate && (
+        <div>
+          {props.estimatedPointLabel}: {formatUSD(estimatedPoint as number)}
+        </div>
+      )}
       {(point?.quota_events_count ?? 0) > 0 && (
         <div>
           {props.eventsLabel}: {point?.quota_events_count}

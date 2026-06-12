@@ -8,7 +8,10 @@ import (
 	"time"
 )
 
-const tokenMillion = 1000000.0
+const (
+	tokenMillion                  = 1000000.0
+	estimatedQuotaPlateauMaxDelta = 0.5
+)
 
 type TokenDimension struct {
 	Provider  string
@@ -31,14 +34,15 @@ type TokenPriceRow struct {
 }
 
 type ProviderQuotaLinePoint struct {
-	HourTS                int64   `json:"hour_ts"`
-	BucketTS              int64   `json:"bucket_ts,omitempty"`
-	BucketSeconds         int64   `json:"bucket_seconds,omitempty"`
-	QuotaRemainingPercent float64 `json:"quota_remaining_percent"`
-	QuotaUsedPercent      float64 `json:"quota_used_percent"`
-	CLIProxyHourUSD       float64 `json:"cliproxy_hour_usd"`
-	CLIProxyCumulativeUSD float64 `json:"cliproxy_cumulative_usd"`
-	QuotaEventsCount      int64   `json:"quota_events_count"`
+	HourTS                 int64    `json:"hour_ts"`
+	BucketTS               int64    `json:"bucket_ts,omitempty"`
+	BucketSeconds          int64    `json:"bucket_seconds,omitempty"`
+	QuotaRemainingPercent  float64  `json:"quota_remaining_percent"`
+	QuotaUsedPercent       float64  `json:"quota_used_percent"`
+	CLIProxyHourUSD        float64  `json:"cliproxy_hour_usd"`
+	CLIProxyCumulativeUSD  float64  `json:"cliproxy_cumulative_usd"`
+	QuotaEventsCount       int64    `json:"quota_events_count"`
+	EstimatedQuotaUSDPoint *float64 `json:"estimated_quota_usd_point,omitempty"`
 }
 
 type ProviderQuotaResetMarker struct {
@@ -85,6 +89,7 @@ func tokenPrice(v float64) *float64 {
 }
 
 var officialPriceRules = []officialPriceRule{
+	{Provider: "claude", Patterns: []string{"claude-opus-4-8", "opus-4-8"}, Input: 5, Output: 25, Cached: tokenPrice(0.5)},
 	{Provider: "claude", Patterns: []string{"claude-opus-4-7", "opus-4-7"}, Input: 5, Output: 25, Cached: tokenPrice(0.5)},
 	{Provider: "claude", Patterns: []string{"claude-opus-4-6", "opus-4-6"}, Input: 5, Output: 25, Cached: tokenPrice(0.5)},
 	{Provider: "claude", Patterns: []string{"claude-opus-4-5", "opus-4-5"}, Input: 5, Output: 25, Cached: tokenPrice(0.5)},
@@ -352,7 +357,10 @@ func (s *Store) ProviderQuotaLines(fromTS, toTS int64, resetOn429, resetOnRefres
 	if err != nil {
 		return nil, err
 	}
-	bucketSeconds := analyticsBucketSeconds(fromTS, toTS)
+	bucketSeconds, err := s.quotaLinesBucketSeconds(fromTS, toTS)
+	if err != nil {
+		return nil, err
+	}
 	displayStart := floorBucket(fromTS, bucketSeconds)
 	priceFromTS := fromTS - 60*86400
 	maxPrices, err := s.maxOfficialPriceByAuth(priceFromTS, toTS)
@@ -376,6 +384,11 @@ func (s *Store) ProviderQuotaLines(fromTS, toTS int64, resetOn429, resetOnRefres
 		if lookbackFromTS < 0 {
 			lookbackFromTS = 0
 		}
+		windowDuration := quotaWindowDurationSeconds(windowClass, windowType)
+		resetLookupToTS := toTS
+		if windowDuration > 0 {
+			resetLookupToTS += windowDuration
+		}
 		bucketUSD, err := s.usdByAuthBucket(lookbackFromTS, toTS, bucketSeconds)
 		if err != nil {
 			return nil, err
@@ -384,11 +397,15 @@ func (s *Store) ProviderQuotaLines(fromTS, toTS int64, resetOn429, resetOnRefres
 		if err != nil {
 			return nil, err
 		}
-		eventResetMarkers, err := s.eventResetMarkersByAuth(lookbackFromTS, toTS)
+		eventResetMarkers, err := s.eventResetMarkersByAuth(lookbackFromTS, resetLookupToTS)
 		if err != nil {
 			return nil, err
 		}
-		usedByBucket, err := s.quotaUsedByBucket(key.provider, key.authID, windowType, lookbackFromTS, toTS, bucketSeconds)
+		usedByBucket, rawUsedByBucket, err := s.quotaUsedByBucket(key.provider, key.authID, windowType, lookbackFromTS, toTS, bucketSeconds)
+		if err != nil {
+			return nil, err
+		}
+		_, hourlyRawUsedByBucket, err := s.quotaUsedByBucket(key.provider, key.authID, windowType, lookbackFromTS, toTS, analyticsHourBucketSeconds)
 		if err != nil {
 			return nil, err
 		}
@@ -397,7 +414,7 @@ func (s *Store) ProviderQuotaLines(fromTS, toTS int64, resetOn429, resetOnRefres
 		if err != nil {
 			return nil, err
 		}
-		estimateUsedByBucket, err := s.quotaUsedByBucket(key.provider, key.authID, windowType, estimateFromTS, toTS+estimateBucketSeconds, estimateBucketSeconds)
+		estimateUsedByBucket, _, err := s.quotaUsedByBucket(key.provider, key.authID, windowType, estimateFromTS, toTS+estimateBucketSeconds, estimateBucketSeconds)
 		if err != nil {
 			return nil, err
 		}
@@ -410,33 +427,32 @@ func (s *Store) ProviderQuotaLines(fromTS, toTS int64, resetOn429, resetOnRefres
 			InputUSDPerMillion:         inputPrice.price,
 			InputPriceModel:            inputPrice.model,
 		}
-		snapshotResetMarkers, err := s.snapshotResetMarkersForWindow(key.provider, key.authID, windowType, lookbackFromTS, toTS)
+		snapshotResetMarkers, err := s.snapshotResetMarkersForWindow(key.provider, key.authID, windowType, lookbackFromTS, resetLookupToTS)
 		if err != nil {
 			return nil, err
 		}
 		resetTimes := dedupeResetTimesByBucket(mergeResetTimes(eventResetMarkers[key], snapshotResetMarkers), 60)
-		accumulationStart := displayStart
-		if resetAt := latestResetBeforeOrAt(resetTimes, displayStart); resetAt > 0 {
-			accumulationStart = floorBucket(resetAt, bucketSeconds)
-		}
+		accumulationStart := quotaCycleAccumulationStart(resetTimes, displayStart, bucketSeconds, windowDuration)
 		if resetOn429 {
 			if eventBucket := latestEventBucketBeforeOrAt(events[key], displayStart); eventBucket > accumulationStart {
 				accumulationStart = eventBucket
 			}
 		}
+		hourlyPlateauBuckets := quotaUsedPlateauBuckets(hourlyRawUsedByBucket)
 		var cumulative, lastUsed float64
 		var lastUsedBucket int64
 		var haveLast bool
 		for bucket := accumulationStart; bucket < toTS; bucket += bucketSeconds {
 			used, ok := usedByBucket[bucket]
-			if ok && haveLast && quotaUsageDropLooksLikeReset(lastUsed, used, bucket-lastUsedBucket) {
+			freshUsed, freshOK := rawUsedByBucket[bucket]
+			if freshOK && haveLast && quotaUsageDropLooksLikeReset(lastUsed, freshUsed, bucket-lastUsedBucket) {
 				cumulative = 0
 			}
-			if ok {
-				lastUsed = used
+			if freshOK {
+				lastUsed = freshUsed
 				lastUsedBucket = bucket
 				haveLast = true
-			} else if haveLast {
+			} else if !ok && haveLast {
 				used = lastUsed
 			}
 			eventCount := events[key][bucket]
@@ -461,6 +477,12 @@ func (s *Store) ProviderQuotaLines(fromTS, toTS int64, resetOn429, resetOnRefres
 				CLIProxyCumulativeUSD: cumulative,
 				QuotaEventsCount:      eventCount,
 			}
+			hourBucket := floorBucket(bucket, analyticsHourBucketSeconds)
+			hourUsed, hourUsedOK := hourlyRawUsedByBucket[hourBucket]
+			if hourUsedOK && hourlyPlateauBuckets[hourBucket] && bucket+bucketSeconds >= hourBucket+analyticsHourBucketSeconds && hourUsed >= 10 && hourUsed <= 100 && cumulative > 0 {
+				est := cumulative / hourUsed * 100
+				point.EstimatedQuotaUSDPoint = &est
+			}
 			series.Points = append(series.Points, point)
 		}
 		series.ResetMarkers = buildResetMarkers(filterResetTimes(resetTimes, fromTS, toTS), series.Points)
@@ -468,6 +490,17 @@ func (s *Store) ProviderQuotaLines(fromTS, toTS int64, resetOn429, resetOnRefres
 		resp.Series = append(resp.Series, series)
 	}
 	return resp, nil
+}
+
+func (s *Store) quotaLinesBucketSeconds(fromTS, toTS int64) (int64, error) {
+	var hasRaw int
+	if err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM query_logs WHERE ts >= ? AND ts < ? LIMIT 1)`, fromTS, toTS).Scan(&hasRaw); err != nil {
+		return 0, err
+	}
+	if hasRaw != 0 {
+		return analyticsFiveMinuteBucketSeconds, nil
+	}
+	return analyticsBucketSeconds(fromTS, toTS), nil
 }
 
 func quotaEstimateWindow(windowClass, windowType string, fromTS, toTS int64) (int64, int64, float64) {
@@ -496,6 +529,37 @@ func quotaAccumulationLookbackSeconds(windowClass, windowType string) int64 {
 	}
 }
 
+func quotaWindowDurationSeconds(windowClass, windowType string) int64 {
+	class := classifyQuotaWindow(windowType)
+	if class == "" {
+		class = windowClass
+	}
+	switch class {
+	case "5h":
+		return int64((5 * time.Hour) / time.Second)
+	case "7d":
+		return int64((7 * 24 * time.Hour) / time.Second)
+	default:
+		return 0
+	}
+}
+
+func quotaCycleAccumulationStart(resetTimes []int64, displayStart, bucketSeconds, windowDuration int64) int64 {
+	if resetAt := latestResetBeforeOrAt(resetTimes, displayStart); resetAt > 0 {
+		return floorBucket(resetAt, bucketSeconds)
+	}
+	if windowDuration <= 0 {
+		return displayStart
+	}
+	if resetAt := earliestResetAfter(resetTimes, displayStart); resetAt > 0 {
+		cycleStart := resetAt - windowDuration
+		if cycleStart <= displayStart {
+			return floorBucket(cycleStart, bucketSeconds)
+		}
+	}
+	return displayStart
+}
+
 func latestResetBeforeOrAt(resetTimes []int64, ts int64) int64 {
 	var latest int64
 	for _, resetAt := range resetTimes {
@@ -504,6 +568,19 @@ func latestResetBeforeOrAt(resetTimes []int64, ts int64) int64 {
 		}
 	}
 	return latest
+}
+
+func earliestResetAfter(resetTimes []int64, ts int64) int64 {
+	var earliest int64
+	for _, resetAt := range resetTimes {
+		if resetAt <= ts {
+			continue
+		}
+		if earliest == 0 || resetAt < earliest {
+			earliest = resetAt
+		}
+	}
+	return earliest
 }
 
 func latestEventBucketBeforeOrAt(events map[int64]int64, ts int64) int64 {
@@ -604,6 +681,13 @@ func (s *Store) usdByAuthBucket(fromTS, toTS, bucketSeconds int64) (map[quotaSer
 		return s.queryLogBucketUSD(fromTS, toTS, bucketSeconds)
 	}
 	return s.hourlyBucketUSD(fromTS, toTS, bucketSeconds)
+}
+
+func (s *Store) hourlyEstimateUSDByAuthBucket(fromTS, toTS, displayBucketSeconds int64) (map[quotaSeriesKey]map[int64]float64, error) {
+	if displayBucketSeconds == analyticsFiveMinuteBucketSeconds {
+		return s.queryLogBucketUSD(fromTS, toTS, analyticsHourBucketSeconds)
+	}
+	return s.hourlyBucketUSD(fromTS, toTS, analyticsHourBucketSeconds)
 }
 
 func (s *Store) queryLogBucketUSD(fromTS, toTS, bucketSeconds int64) (map[quotaSeriesKey]map[int64]float64, error) {
@@ -849,24 +933,79 @@ func hasResetInBucket(resetTimes []int64, bucketTS, bucketSeconds int64) bool {
 	return false
 }
 
-func (s *Store) quotaUsedByBucket(provider, authID, windowType string, fromTS, toTS, bucketSeconds int64) (map[int64]float64, error) {
+func (s *Store) quotaUsedByBucket(provider, authID, windowType string, fromTS, toTS, bucketSeconds int64) (map[int64]float64, map[int64]float64, error) {
 	rows, err := s.db.Query(`
 		SELECT (ts / ?) * ? AS bucket_ts, used_percent
 		FROM quota_snapshots
 		WHERE provider = ? AND auth_id = ? AND window_type = ? AND ts >= ? AND ts < ?
 		ORDER BY bucket_ts, ts, id`, bucketSeconds, bucketSeconds, provider, authID, windowType, fromTS, toTS)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
-	out := map[int64]float64{}
+	raw := map[int64]float64{}
 	for rows.Next() {
 		var bucket int64
 		var used float64
 		if err := rows.Scan(&bucket, &used); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		out[bucket] = clampPercent(used)
+		raw[bucket] = clampPercent(used)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return interpolateQuotaUsedBuckets(raw, bucketSeconds), raw, nil
+}
+
+func quotaUsedPlateauBuckets(raw map[int64]float64) map[int64]bool {
+	out := map[int64]bool{}
+	if len(raw) < 2 {
+		return out
+	}
+	buckets := make([]int64, 0, len(raw))
+	for bucket := range raw {
+		buckets = append(buckets, bucket)
+	}
+	sort.Slice(buckets, func(i, j int) bool { return buckets[i] < buckets[j] })
+	for i, bucket := range buckets {
+		used := raw[bucket]
+		if i > 0 && math.Abs(used-raw[buckets[i-1]]) <= estimatedQuotaPlateauMaxDelta {
+			out[bucket] = true
+			out[buckets[i-1]] = true
+		}
+		if i+1 < len(buckets) && math.Abs(used-raw[buckets[i+1]]) <= estimatedQuotaPlateauMaxDelta {
+			out[bucket] = true
+			out[buckets[i+1]] = true
+		}
+	}
+	return out
+}
+
+func interpolateQuotaUsedBuckets(raw map[int64]float64, bucketSeconds int64) map[int64]float64 {
+	out := make(map[int64]float64, len(raw))
+	if len(raw) == 0 || bucketSeconds <= 0 {
+		return out
+	}
+	buckets := make([]int64, 0, len(raw))
+	for bucket, used := range raw {
+		out[bucket] = used
+		buckets = append(buckets, bucket)
+	}
+	sort.Slice(buckets, func(i, j int) bool { return buckets[i] < buckets[j] })
+	for i := 0; i+1 < len(buckets); i++ {
+		leftBucket := buckets[i]
+		rightBucket := buckets[i+1]
+		steps := (rightBucket - leftBucket) / bucketSeconds
+		if steps <= 1 {
+			continue
+		}
+		leftUsed := raw[leftBucket]
+		rightUsed := raw[rightBucket]
+		for step := int64(1); step < steps; step++ {
+			ratio := float64(step) / float64(steps)
+			out[leftBucket+step*bucketSeconds] = leftUsed + (rightUsed-leftUsed)*ratio
+		}
+	}
+	return out
 }

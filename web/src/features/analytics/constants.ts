@@ -1,4 +1,4 @@
-import type { QuickRangeKey, TrendSeriesVisibility } from './types';
+import type { QuickRangeKey, QuotaSeriesVisibility, TrendSeriesVisibility } from './types';
 
 export const DAY_SECONDS = 24 * 60 * 60;
 
@@ -14,6 +14,12 @@ export const DEFAULT_TREND_SERIES_VISIBILITY: TrendSeriesVisibility = {
   cachedTokens: true,
 };
 
+export const DEFAULT_QUOTA_SERIES_VISIBILITY: QuotaSeriesVisibility = {
+  quotaUsed: true,
+  cumulativeUSD: true,
+  estimatedQuotaUSD: true,
+};
+
 export const COLORS = {
   primary: '#8b8680',
   success: '#10b981',
@@ -22,6 +28,7 @@ export const COLORS = {
   grid: 'rgba(150,150,150,0.18)',
   quota: '#7a6d9a',
   cumulative: '#5b8a72',
+  estimatedQuota: 'rgba(198, 87, 70, 0.55)',
   inputTokens: '#5d8aa8',
   outputTokens: '#c1834d',
   cachedTokens: '#7a6d9a',

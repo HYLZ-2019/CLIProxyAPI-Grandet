@@ -406,6 +406,10 @@ func ClientKeyIDFromContext(ctx context.Context) int {
 	return clientKeyIDFromGinContext(ctx)
 }
 
+type ginContextReader interface {
+	Get(string) (any, bool)
+}
+
 func clientKeyIDFromGinContext(ctx context.Context) int {
 	ginCtx, ok := ctx.Value("gin").(ginContextReader)
 	if !ok || ginCtx == nil {

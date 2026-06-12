@@ -230,6 +230,8 @@ export function toQuotaTooltipData(series: ProviderQuotaSeries): ProviderQuotaTo
   return series.points.map((point) => ({
     ...point,
     x_ts: point.bucket_ts ?? point.hour_ts,
+    estimated_quota_usd_point:
+      typeof point.estimated_quota_usd_point === 'number' ? point.estimated_quota_usd_point : null,
   }));
 }
 
@@ -237,7 +239,8 @@ export function isQuotaBucketPoint(point?: ProviderQuotaTooltipPoint): boolean {
   return (
     point?.bucket_seconds !== undefined ||
     point?.quota_used_percent !== undefined ||
-    point?.cliproxy_cumulative_usd !== undefined
+    point?.cliproxy_cumulative_usd !== undefined ||
+    point?.estimated_quota_usd_point !== undefined
   );
 }
 
@@ -251,6 +254,27 @@ export function findNearestQuotaPoint(
   for (const point of data) {
     const pointTS = Number(point.x_ts ?? 0);
     if (!Number.isFinite(pointTS) || pointTS <= 0) continue;
+    const distance = Math.abs(pointTS - ts);
+    if (distance < bestDistance) {
+      best = point;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+export function findNearestQuotaEstimatePoint(
+  data: ProviderQuotaTooltipPoint[],
+  ts: number,
+): ProviderQuotaTooltipPoint | undefined {
+  if (!Number.isFinite(ts) || ts <= 0) return undefined;
+  let best: ProviderQuotaTooltipPoint | undefined;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const point of data) {
+    const pointTS = Number(point.x_ts ?? 0);
+    const estimate = point.estimated_quota_usd_point;
+    if (!Number.isFinite(pointTS) || pointTS <= 0) continue;
+    if (typeof estimate !== 'number' || !Number.isFinite(estimate) || estimate <= 0) continue;
     const distance = Math.abs(pointTS - ts);
     if (distance < bestDistance) {
       best = point;

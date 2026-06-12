@@ -7,8 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,10 +16,9 @@ import (
 
 // QuotaPoller periodically queries provider quota APIs using OAuth tokens from the auth manager.
 type QuotaPoller struct {
-	store        *Store
-	manager      *coreauth.Manager
-	client       *http.Client
-	debugLogPath string
+	store   *Store
+	manager *coreauth.Manager
+	client  *http.Client
 }
 
 // quotaPollInterval is how often we re-query upstream provider quota endpoints.
@@ -33,10 +30,9 @@ func StartQuotaPoller(ctx context.Context, store *Store, manager *coreauth.Manag
 		return
 	}
 	p := &QuotaPoller{
-		store:        store,
-		manager:      manager,
-		client:       &http.Client{Timeout: 30 * time.Second},
-		debugLogPath: filepath.Join(filepath.Dir(store.DBPath()), "quota-response-debug.jsonl"),
+		store:   store,
+		manager: manager,
+		client:  &http.Client{Timeout: 30 * time.Second},
 	}
 	go p.run(ctx)
 }
@@ -97,12 +93,10 @@ func (p *QuotaPoller) pollClaude(ctx context.Context, ts int64, authID, token st
 		return
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	p.logQuotaResponse(ts, "claude", authID, req.URL.String(), resp.StatusCode, body)
 	if resp.StatusCode != http.StatusOK {
 		return
 	}
-
+	body, _ := io.ReadAll(resp.Body)
 	captureClaudeQuotaSnapshots(p.store, ts, "claude", authID, body)
 }
 
@@ -123,12 +117,10 @@ func (p *QuotaPoller) pollCodex(ctx context.Context, ts int64, authID, token str
 		return
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	p.logQuotaResponse(ts, "codex", authID, req.URL.String(), resp.StatusCode, body)
 	if resp.StatusCode != http.StatusOK {
 		return
 	}
-
+	body, _ := io.ReadAll(resp.Body)
 	captureCodexQuotaSnapshots(p.store, ts, "codex", authID, body)
 }
 
@@ -149,51 +141,11 @@ func (p *QuotaPoller) pollGeminiCLI(ctx context.Context, ts int64, authID, token
 		return
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	p.logQuotaResponse(ts, "gemini-cli", authID, req.URL.String(), resp.StatusCode, body)
 	if resp.StatusCode != http.StatusOK {
 		return
 	}
-
+	body, _ := io.ReadAll(resp.Body)
 	captureGeminiCLIQuotaSnapshots(p.store, ts, "gemini-cli", authID, body)
-}
-
-func (p *QuotaPoller) logQuotaResponse(ts int64, provider, authID, endpoint string, statusCode int, body []byte) {
-	if p.debugLogPath == "" {
-		return
-	}
-	if err := os.MkdirAll(filepath.Dir(p.debugLogPath), 0o700); err != nil {
-		log.Debugf("analytics: create quota debug log dir failed: %v", err)
-		return
-	}
-	entry := map[string]any{
-		"ts":          ts,
-		"time":        time.Unix(ts, 0).Format(time.RFC3339),
-		"provider":    provider,
-		"auth_id":     authID,
-		"endpoint":    endpoint,
-		"status_code": statusCode,
-	}
-	var parsed any
-	if err := json.Unmarshal(body, &parsed); err == nil {
-		entry["body"] = parsed
-	} else {
-		entry["body"] = string(body)
-	}
-	line, err := json.Marshal(entry)
-	if err != nil {
-		log.Debugf("analytics: marshal quota debug log failed: %v", err)
-		return
-	}
-	file, err := os.OpenFile(p.debugLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		log.Debugf("analytics: open quota debug log failed: %v", err)
-		return
-	}
-	defer file.Close()
-	if _, err := file.Write(append(line, '\n')); err != nil {
-		log.Debugf("analytics: write quota debug log failed: %v", err)
-	}
 }
 
 // extractAndStore tries common field patterns to pull a used_percent value.

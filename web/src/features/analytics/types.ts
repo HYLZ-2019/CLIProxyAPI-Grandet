@@ -14,6 +14,12 @@ export type TrendSeriesVisibility = {
   cachedTokens: boolean;
 };
 
+export type QuotaSeriesVisibility = {
+  quotaUsed: boolean;
+  cumulativeUSD: boolean;
+  estimatedQuotaUSD: boolean;
+};
+
 export type QuotaWindowClass = '5h' | '7d';
 
 export type QuotaAuthOption = {
@@ -69,6 +75,7 @@ export type ProviderQuotaTooltipPoint = {
   quota_used_percent?: number;
   cliproxy_hour_usd?: number;
   cliproxy_cumulative_usd?: number;
+  estimated_quota_usd_point?: number | null;
   quota_events_count?: number;
   eventDot?: number;
   resetDot?: number;

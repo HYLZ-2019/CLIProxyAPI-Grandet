@@ -118,6 +118,8 @@ export function AnalyticsPage() {
         usageWindow={range.usageWindow}
         show429Dots={selections.show429Dots}
         showResetMarkers={selections.showResetMarkers}
+        quotaSeriesVisibility={selections.quotaSeriesVisibility}
+        setQuotaSeriesVisibility={selections.setQuotaSeriesVisibility}
       />
 
       <TokenPriceTable

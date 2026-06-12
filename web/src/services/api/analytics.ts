@@ -99,6 +99,7 @@ export interface ProviderQuotaLinePoint {
   cliproxy_hour_usd: number;
   cliproxy_cumulative_usd: number;
   quota_events_count: number;
+  estimated_quota_usd_point?: number;
 }
 
 export interface ProviderQuotaResetMarker {

@@ -86,6 +86,7 @@ func TestOfficialTokenPriceUSDMatchesKnownModelsAndUnknown(t *testing.T) {
 		tokenType string
 		want      float64
 	}{
+		{provider: "claude", model: "claude-opus-4-8", tokenType: "input", want: 5},
 		{provider: "claude", model: "claude-opus-4-7", tokenType: "input", want: 5},
 		{provider: "claude", model: "claude-opus-4-6", tokenType: "cached_input", want: 0.5},
 		{provider: "claude", model: "claude-opus-4-5", tokenType: "output", want: 25},
@@ -329,6 +330,46 @@ func TestProviderQuotaLinesCumulativeIncludesUsageSincePriorReset(t *testing.T) 
 	}
 	if len(resp.Series[0].ResetMarkers) != 0 {
 		t.Fatalf("hidden reset marker should seed cumulative but not be displayed: %+v", resp.Series[0].ResetMarkers)
+	}
+}
+
+func TestProviderQuotaLinesCumulativeInfersCycleStartFromNextReset(t *testing.T) {
+	store := newPricingTestStore(t)
+	cycleStart := time.Date(2026, 1, 8, 0, 0, 0, 0, time.UTC)
+	from := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	reset := time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 1, 17, 0, 0, 0, 0, time.UTC)
+
+	for _, ts := range []time.Time{cycleStart, cycleStart.Add(24 * time.Hour), from, reset, reset.Add(time.Hour)} {
+		store.UpsertHourlyAggregate(ts.Unix(), 1, "claude", "auth-a", "claude-opus-4-7", 1_000_000, 0, 0, 1_000_000, true)
+	}
+	store.InsertQuotaSnapshot(from.Unix(), "claude", "auth-a", "weekly", 5, reset.Unix())
+	store.InsertQuotaSnapshot(reset.Unix(), "claude", "auth-a", "weekly", 1, reset.Add(7*24*time.Hour).Unix())
+
+	resp, err := store.ProviderQuotaLines(from.Unix(), to.Unix(), false, false, "7d")
+	if err != nil {
+		t.Fatalf("provider quota lines: %v", err)
+	}
+	if len(resp.Series) != 1 {
+		t.Fatalf("expected one series, got %+v", resp.Series)
+	}
+	points := resp.Series[0].Points
+	if len(points) == 0 || points[0].BucketTS != from.Unix() {
+		t.Fatalf("display range should start at Jan 10, got %+v", points)
+	}
+	if !near(points[0].CLIProxyCumulativeUSD, 15) {
+		t.Fatalf("first visible cumulative USD = %.4f, want 15", points[0].CLIProxyCumulativeUSD)
+	}
+	resetIndex := int(reset.Sub(from) / time.Hour)
+	if resetIndex >= len(points) || points[resetIndex].BucketTS != reset.Unix() {
+		t.Fatalf("missing reset bucket at Jan 15: index=%d points=%d", resetIndex, len(points))
+	}
+	if !near(points[resetIndex].CLIProxyCumulativeUSD, 5) || !near(points[resetIndex+1].CLIProxyCumulativeUSD, 10) {
+		t.Fatalf("cumulative should reset at Jan 15, got reset=%+.4f next=%+.4f", points[resetIndex].CLIProxyCumulativeUSD, points[resetIndex+1].CLIProxyCumulativeUSD)
+	}
+	markers := resp.Series[0].ResetMarkers
+	if len(markers) != 1 || markers[0].ResetAt != reset.Unix() {
+		t.Fatalf("expected only visible Jan 15 reset marker, got %+v", markers)
 	}
 }
 
@@ -948,4 +989,120 @@ func int64MapValue(t *testing.T, row map[string]any, key string) int64 {
 
 func near(a, b float64) bool {
 	return math.Abs(a-b) < 0.0001
+}
+
+func TestQuotaLinesBucketSecondsUsesFiveMinuteWhenRawLogsExist(t *testing.T) {
+	store := newPricingTestStore(t)
+	start := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(7 * 24 * time.Hour)
+
+	got, err := store.quotaLinesBucketSeconds(start.Unix(), end.Unix())
+	if err != nil {
+		t.Fatalf("quota line bucket seconds: %v", err)
+	}
+	if got != analyticsHourBucketSeconds {
+		t.Fatalf("7d range without raw logs: got %d, want hourly", got)
+	}
+
+	store.InsertQueryLog(start.Add(time.Minute).Unix(), 1, "claude", "auth-a", "claude-opus-4-7", 1_000_000, 0, 0, 1_000_000, true)
+	got, err = store.quotaLinesBucketSeconds(start.Unix(), end.Unix())
+	if err != nil {
+		t.Fatalf("quota line bucket seconds with raw logs: %v", err)
+	}
+	if got != analyticsFiveMinuteBucketSeconds {
+		t.Fatalf("7d range with raw logs: got %d, want 5min", got)
+	}
+}
+
+func TestProviderQuotaLinesEmitsEstimatedQuotaPointFromHourlyPlateauTotals(t *testing.T) {
+	store := newPricingTestStore(t)
+	start := time.Date(2026, 5, 18, 8, 0, 0, 0, time.UTC)
+
+	used := []float64{5, 10, 10.25, 20}
+	for i, value := range used {
+		hour := start.Add(time.Duration(i) * time.Hour)
+		store.InsertQuotaSnapshot(hour.Add(10*time.Second).Unix(), "claude", "auth-a", "weekly", value, 0)
+		store.InsertQueryLog(hour.Add(time.Minute).Unix(), 1, "claude", "auth-a", "claude-opus-4-7", 1_000_000, 0, 0, 1_000_000, true)
+		store.InsertQueryLog(hour.Add(31*time.Minute).Unix(), 1, "claude", "auth-a", "claude-opus-4-7", 1_000_000, 0, 0, 1_000_000, true)
+	}
+
+	resp, err := store.ProviderQuotaLines(start.Unix(), start.Add(4*time.Hour).Unix(), false, false, "")
+	if err != nil {
+		t.Fatalf("provider quota lines: %v", err)
+	}
+	if len(resp.Series) != 1 {
+		t.Fatalf("unexpected series: %+v", resp.Series)
+	}
+	points := map[int64]ProviderQuotaLinePoint{}
+	for _, point := range resp.Series[0].Points {
+		points[point.BucketTS] = point
+	}
+
+	if points[start.Unix()].EstimatedQuotaUSDPoint != nil {
+		t.Fatalf("used<10 should produce no estimate")
+	}
+	hour1End := start.Add(time.Hour + 55*time.Minute).Unix()
+	hour2End := start.Add(2*time.Hour + 55*time.Minute).Unix()
+	hour3End := start.Add(3*time.Hour + 55*time.Minute).Unix()
+	if points[hour1End].EstimatedQuotaUSDPoint == nil || !near(*points[hour1End].EstimatedQuotaUSDPoint, 200) {
+		t.Fatalf("hour 1 plateau total estimate = %v, want 200", points[hour1End].EstimatedQuotaUSDPoint)
+	}
+	if points[hour2End].EstimatedQuotaUSDPoint == nil || !near(*points[hour2End].EstimatedQuotaUSDPoint, 292.6829268293) {
+		t.Fatalf("hour 2 plateau total estimate = %v, want 292.6829", points[hour2End].EstimatedQuotaUSDPoint)
+	}
+	if points[hour3End].EstimatedQuotaUSDPoint != nil {
+		t.Fatalf("non-plateau hour should produce no estimate, got %v", *points[hour3End].EstimatedQuotaUSDPoint)
+	}
+}
+
+func TestProviderQuotaLinesInterpolatesMissingQuotaBuckets(t *testing.T) {
+	store := newPricingTestStore(t)
+	start := time.Date(2026, 5, 18, 8, 0, 0, 0, time.UTC)
+
+	store.InsertQuotaSnapshot(start.Add(10*time.Second).Unix(), "claude", "auth-a", "weekly", 10, 0)
+	store.InsertQuotaSnapshot(start.Add(15*time.Minute+10*time.Second).Unix(), "claude", "auth-a", "weekly", 40, 0)
+	for _, offset := range []time.Duration{time.Minute, 6 * time.Minute, 11 * time.Minute, 16 * time.Minute} {
+		store.InsertQueryLog(start.Add(offset).Unix(), 1, "claude", "auth-a", "claude-opus-4-7", 1_000_000, 0, 0, 1_000_000, true)
+	}
+
+	resp, err := store.ProviderQuotaLines(start.Unix(), start.Add(20*time.Minute).Unix(), false, false, "")
+	if err != nil {
+		t.Fatalf("provider quota lines: %v", err)
+	}
+	if len(resp.Series) != 1 || len(resp.Series[0].Points) != 4 {
+		t.Fatalf("unexpected series: %+v", resp.Series)
+	}
+	points := resp.Series[0].Points
+	if !near(points[1].QuotaUsedPercent, 20) || !near(points[2].QuotaUsedPercent, 30) {
+		t.Fatalf("interpolated used percent = %.2f, %.2f; want 20, 30", points[1].QuotaUsedPercent, points[2].QuotaUsedPercent)
+	}
+	for i, point := range points {
+		if point.EstimatedQuotaUSDPoint != nil {
+			t.Fatalf("point %d estimate = %v, want nil for sub-hour interval", i, *point.EstimatedQuotaUSDPoint)
+		}
+	}
+}
+
+func TestProviderQuotaLinesEstimatedQuotaPointSkipsForwardFilledBuckets(t *testing.T) {
+	store := newPricingTestStore(t)
+	start := time.Date(2026, 5, 18, 8, 0, 0, 0, time.UTC)
+
+	store.InsertQuotaSnapshot(start.Add(10*time.Second).Unix(), "claude", "auth-a", "weekly", 20, 0)
+	store.InsertQueryLog(start.Add(time.Minute).Unix(), 1, "claude", "auth-a", "claude-opus-4-7", 1_000_000, 0, 0, 1_000_000, true)
+	store.InsertQueryLog(start.Add(6*time.Minute).Unix(), 1, "claude", "auth-a", "claude-opus-4-7", 1_000_000, 0, 0, 1_000_000, true)
+
+	resp, err := store.ProviderQuotaLines(start.Unix(), start.Add(10*time.Minute).Unix(), false, false, "")
+	if err != nil {
+		t.Fatalf("provider quota lines: %v", err)
+	}
+	if len(resp.Series) != 1 || len(resp.Series[0].Points) != 2 {
+		t.Fatalf("unexpected series: %+v", resp.Series)
+	}
+	points := resp.Series[0].Points
+	if points[0].EstimatedQuotaUSDPoint != nil {
+		t.Fatalf("point 0: single raw snapshot should produce no plateau estimate, got %v", *points[0].EstimatedQuotaUSDPoint)
+	}
+	if points[1].EstimatedQuotaUSDPoint != nil {
+		t.Fatalf("point 1: forward-filled used should produce no estimate, got %v", *points[1].EstimatedQuotaUSDPoint)
+	}
 }
