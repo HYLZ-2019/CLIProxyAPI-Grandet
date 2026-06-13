@@ -102,6 +102,13 @@ func TestOfficialTokenPriceUSDMatchesKnownModelsAndUnknown(t *testing.T) {
 		{provider: "codex", model: "gpt-5.5", tokenType: "input", want: 5},
 		{provider: "codex", model: "gpt-5.5", tokenType: "cached_input", want: 0.5},
 		{provider: "codex", model: "gpt-5.5", tokenType: "output", want: 30},
+		{provider: "codex", model: "codex-auto-review", tokenType: "input", want: 1.75},
+		{provider: "codex", model: "codex-auto-review", tokenType: "cached_input", want: 0.175},
+		{provider: "codex", model: "codex-auto-review", tokenType: "output", want: 14},
+		{provider: "openai", model: "gpt-5.3-codex", tokenType: "input", want: 1.75},
+		{provider: "codex", model: "gpt-image-2", tokenType: "input", want: 5},
+		{provider: "codex", model: "gpt-image-2", tokenType: "cached_input", want: 1.25},
+		{provider: "codex", model: "gpt-image-2", tokenType: "output", want: 30},
 		{provider: "openai", model: "gpt-5.5-pro", tokenType: "input", want: 30},
 		{provider: "openai", model: "gpt-5.5-pro", tokenType: "output", want: 180},
 		{provider: "codex", model: "gpt-5.4", tokenType: "input", want: 2.5},
@@ -1104,5 +1111,214 @@ func TestProviderQuotaLinesEstimatedQuotaPointSkipsForwardFilledBuckets(t *testi
 	}
 	if points[1].EstimatedQuotaUSDPoint != nil {
 		t.Fatalf("point 1: forward-filled used should produce no estimate, got %v", *points[1].EstimatedQuotaUSDPoint)
+	}
+}
+
+func TestOfficialTokenPriceUSDIncludesCacheCreation(t *testing.T) {
+	cases := []struct {
+		provider, model string
+		want            float64
+	}{
+		{"claude", "claude-opus-4-7", 10},
+		{"claude", "claude-opus-4-1", 30},
+		{"claude", "claude-sonnet-4-6", 6},
+		{"claude", "claude-haiku-4-5", 2},
+		{"claude", "claude-haiku-3-5", 1.6},
+	}
+	for _, tc := range cases {
+		got, ok := officialTokenPriceUSD(tc.provider, tc.model, "cache_creation_input")
+		if !ok || math.Abs(got-tc.want) > 0.0001 {
+			t.Fatalf("officialTokenPriceUSD(%q,%q,cache_creation_input) = %.4f,%v; want %.4f,true", tc.provider, tc.model, got, ok, tc.want)
+		}
+	}
+	if got, ok := officialTokenPriceUSD("codex", "gpt-5-codex", "cache_creation_input"); ok || got != 0 {
+		t.Fatalf("codex must not advertise cache_creation_input price, got %.4f,%v", got, ok)
+	}
+	if got, ok := officialTokenPriceUSD("gemini-cli", "gemini-2.5-pro", "cache_creation_input"); ok || got != 0 {
+		t.Fatalf("gemini must not advertise cache_creation_input price, got %.4f,%v", got, ok)
+	}
+}
+
+func TestTokenCostUSDClaudeBillsAllFourCategoriesSeparately(t *testing.T) {
+	// 1M input + 1M output + 500k cache_read + 200k 1h cache_creation on opus-4-7.
+	// Expected: 5 + 25 + 0.25 + 2 = 32.25 USD.
+	got := tokenCostUSD("claude", "claude-opus-4-7",
+		1_000_000, 1_000_000, 500_000, /* cached column, unused for Claude */
+		0, 500_000, 200_000)
+	if !near(got, 32.25) {
+		t.Fatalf("claude opus cost = %.4f, want 32.25", got)
+	}
+
+	// cached_tokens column is ignored for Claude: passing a bogus value must not change the cost.
+	got = tokenCostUSD("claude", "claude-opus-4-7",
+		1_000_000, 1_000_000, 9_999_999_999,
+		0, 500_000, 200_000)
+	if !near(got, 32.25) {
+		t.Fatalf("claude opus cost should not depend on cached_tokens column, got %.4f", got)
+	}
+}
+
+func TestTokenCostUSDOpenAIDoesNotDoubleCountCachedAndIgnoresReasoning(t *testing.T) {
+	// gpt-5-codex prices: input 1.25, output 10, cached_input 0.125.
+	// prompt_tokens=1M includes cached_tokens=400k → uncached=600k.
+	// completion_tokens=500k already includes reasoning_tokens=100k.
+	// Expected: 0.6 × 1.25 + 0.5 × 10 + 0.4 × 0.125 = 0.75 + 5 + 0.05 = 5.8 USD.
+	got := tokenCostUSD("codex", "gpt-5-codex",
+		1_000_000, 500_000, 400_000,
+		100_000, 0, 0)
+	if !near(got, 5.8) {
+		t.Fatalf("codex cost = %.4f, want 5.8", got)
+	}
+
+	// codex-auto-review maps to gpt-5.3-codex pricing: input 1.75, output 14, cached 0.175.
+	got = tokenCostUSD("codex", "codex-auto-review",
+		1_000_000, 500_000, 400_000,
+		100_000, 0, 0)
+	if !near(got, 8.12) {
+		t.Fatalf("codex-auto-review cost = %.4f, want 8.12", got)
+	}
+
+	// Codex image generation usage is recorded under gpt-image-2; the usage stream only exposes
+	// input/output token totals, so we price input as text-input and output as image-output.
+	got = tokenCostUSD("codex", "gpt-image-2",
+		1_000_000, 500_000, 400_000,
+		0, 0, 0)
+	if !near(got, 18.5) {
+		t.Fatalf("gpt-image-2 cost = %.4f, want 18.5", got)
+	}
+
+	// Passing positive reasoning must not change anything — it is already inside output_tokens.
+	gotWithReasoning := tokenCostUSD("codex", "gpt-5-codex",
+		1_000_000, 500_000, 400_000,
+		0, 0, 0)
+	if !near(gotWithReasoning, 5.8) {
+		t.Fatalf("codex cost should not depend on reasoning column, got %.4f", gotWithReasoning)
+	}
+
+	// Malformed upstream where cached > input must not produce negative cost.
+	got = tokenCostUSD("codex", "gpt-5-codex",
+		100_000, 0, 500_000,
+		0, 0, 0)
+	if got < 0 {
+		t.Fatalf("cached>input must clamp uncached to 0, got %.4f", got)
+	}
+	if !near(got, 500_000.0/tokenMillion*0.125) {
+		t.Fatalf("cached>input cost = %.4f, want %.4f", got, 500_000.0/tokenMillion*0.125)
+	}
+}
+
+func TestTokenCostUSDGeminiAddsReasoningAtOutputRateAndSubtractsCached(t *testing.T) {
+	// gemini-2.5-pro prices: input 1.25, output 10, cached_input 0.125.
+	// promptTokenCount=1M includes cachedContentTokenCount=300k → uncached=700k.
+	// candidatesTokenCount=600k, thoughtsTokenCount=200k (billed at output rate).
+	// Expected: 0.7 × 1.25 + (0.6 + 0.2) × 10 + 0.3 × 0.125
+	//         = 0.875 + 8 + 0.0375 = 8.9125 USD.
+	got := tokenCostUSD("gemini-cli", "gemini-2.5-pro",
+		1_000_000, 600_000, 300_000,
+		200_000, 0, 0)
+	if !near(got, 8.9125) {
+		t.Fatalf("gemini-cli cost = %.4f, want 8.9125", got)
+	}
+
+	// Same formula for "gemini" provider (not just gemini-cli).
+	got = tokenCostUSD("gemini", "gemini-2.5-pro",
+		1_000_000, 600_000, 300_000,
+		200_000, 0, 0)
+	if !near(got, 8.9125) {
+		t.Fatalf("gemini cost = %.4f, want 8.9125", got)
+	}
+}
+
+func TestProviderQuotaLinesUsesAnthropicCostFormula(t *testing.T) {
+	store := newPricingTestStore(t)
+	start := time.Date(2026, 5, 18, 8, 0, 0, 0, time.UTC)
+
+	// 1M input + 1M output + 500k cache_read + 200k 1h cache_creation on opus-4-7.
+	// Expected per-bucket USD: 5 + 25 + 0.25 + 2 = 32.25.
+	store.InsertQueryLog(start.Add(time.Minute).Unix(), 1, "claude", "auth-a", "claude-opus-4-7",
+		1_000_000, 1_000_000, 500_000, 0, true,
+		0, 500_000, 200_000)
+	store.InsertQuotaSnapshot(start.Add(10*time.Second).Unix(), "claude", "auth-a", "five_hour", 10, 0)
+
+	resp, err := store.ProviderQuotaLines(start.Unix(), start.Add(5*time.Minute).Unix(), false, false, "5h")
+	if err != nil {
+		t.Fatalf("provider quota lines: %v", err)
+	}
+	if len(resp.Series) != 1 || len(resp.Series[0].Points) != 1 {
+		t.Fatalf("unexpected series: %+v", resp)
+	}
+	if !near(resp.Series[0].Points[0].CLIProxyCumulativeUSD, 32.25) {
+		t.Fatalf("anthropic cumulative USD = %.4f, want 32.25", resp.Series[0].Points[0].CLIProxyCumulativeUSD)
+	}
+}
+
+func TestProviderQuotaLinesUsesOpenAICostFormula(t *testing.T) {
+	store := newPricingTestStore(t)
+	start := time.Date(2026, 5, 18, 8, 0, 0, 0, time.UTC)
+
+	// gpt-5-codex: prompt=1M (cached=400k subset) + completion=500k (reasoning=100k subset).
+	// Expected: 0.75 + 5 + 0.05 = 5.8 USD.
+	store.InsertQueryLog(start.Add(time.Minute).Unix(), 1, "codex", "auth-a", "gpt-5-codex",
+		1_000_000, 500_000, 400_000, 0, true,
+		100_000, 0, 0)
+	store.InsertQuotaSnapshot(start.Add(10*time.Second).Unix(), "codex", "auth-a", "code_five_hour", 10, 0)
+
+	resp, err := store.ProviderQuotaLines(start.Unix(), start.Add(5*time.Minute).Unix(), false, false, "5h")
+	if err != nil {
+		t.Fatalf("provider quota lines: %v", err)
+	}
+	if len(resp.Series) != 1 || len(resp.Series[0].Points) != 1 {
+		t.Fatalf("unexpected series: %+v", resp)
+	}
+	if !near(resp.Series[0].Points[0].CLIProxyCumulativeUSD, 5.8) {
+		t.Fatalf("openai cumulative USD = %.4f, want 5.8", resp.Series[0].Points[0].CLIProxyCumulativeUSD)
+	}
+}
+
+func TestProviderQuotaLinesUsesGeminiCostFormula(t *testing.T) {
+	store := newPricingTestStore(t)
+	start := time.Date(2026, 5, 18, 8, 0, 0, 0, time.UTC)
+
+	// gemini-2.5-pro: prompt=1M (cached=300k subset), candidates=600k, thoughts=200k.
+	// Expected: 0.875 + (0.6+0.2)*10 + 0.0375 = 8.9125 USD.
+	store.InsertQueryLog(start.Add(time.Minute).Unix(), 1, "gemini-cli", "auth-a", "gemini-2.5-pro",
+		1_000_000, 600_000, 300_000, 0, true,
+		200_000, 0, 0)
+	store.InsertQuotaSnapshot(start.Add(10*time.Second).Unix(), "gemini-cli", "auth-a", "gemini-2.5-pro:REQUESTS", 10, 0)
+
+	resp, err := store.ProviderQuotaLines(start.Unix(), start.Add(5*time.Minute).Unix(), false, false, "")
+	if err != nil {
+		t.Fatalf("provider quota lines: %v", err)
+	}
+	if len(resp.Series) != 1 || len(resp.Series[0].Points) != 1 {
+		t.Fatalf("unexpected series: %+v", resp)
+	}
+	if !near(resp.Series[0].Points[0].CLIProxyCumulativeUSD, 8.9125) {
+		t.Fatalf("gemini cumulative USD = %.4f, want 8.9125", resp.Series[0].Points[0].CLIProxyCumulativeUSD)
+	}
+}
+
+func TestOfficialTokenPricesForUsageEmitsCacheCreationRowWhenPresent(t *testing.T) {
+	store := newPricingTestStore(t)
+	start := time.Date(2026, 5, 18, 8, 0, 0, 0, time.UTC)
+
+	store.InsertQueryLog(start.Add(time.Minute).Unix(), 1, "claude", "auth-a", "claude-sonnet-4-6",
+		1_000, 2_000, 300, 0, true,
+		0, 300, 400)
+
+	rows, err := store.OfficialTokenPricesForUsage(start.Unix(), start.Add(time.Hour).Unix())
+	if err != nil {
+		t.Fatalf("official prices: %v", err)
+	}
+	prices := map[string]TokenPriceRow{}
+	for _, row := range rows {
+		prices[row.TokenType] = row
+	}
+	row, ok := prices["cache_creation_input"]
+	if !ok {
+		t.Fatalf("expected cache_creation_input row when cache_creation_tokens>0, got %+v", rows)
+	}
+	if row.Status != "official" || row.PriceUSDPerMillion == nil || !near(*row.PriceUSDPerMillion, 6) {
+		t.Fatalf("unexpected cache_creation_input row: %+v", row)
 	}
 }

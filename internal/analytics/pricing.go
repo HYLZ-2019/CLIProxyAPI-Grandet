@@ -77,11 +77,12 @@ type inputPriceByAuth struct {
 }
 
 type officialPriceRule struct {
-	Provider string
-	Patterns []string
-	Input    float64
-	Output   float64
-	Cached   *float64
+	Provider      string
+	Patterns      []string
+	Input         float64
+	Output        float64
+	Cached        *float64
+	CacheCreation *float64
 }
 
 func tokenPrice(v float64) *float64 {
@@ -89,22 +90,26 @@ func tokenPrice(v float64) *float64 {
 }
 
 var officialPriceRules = []officialPriceRule{
-	{Provider: "claude", Patterns: []string{"claude-opus-4-8", "opus-4-8"}, Input: 5, Output: 25, Cached: tokenPrice(0.5)},
-	{Provider: "claude", Patterns: []string{"claude-opus-4-7", "opus-4-7"}, Input: 5, Output: 25, Cached: tokenPrice(0.5)},
-	{Provider: "claude", Patterns: []string{"claude-opus-4-6", "opus-4-6"}, Input: 5, Output: 25, Cached: tokenPrice(0.5)},
-	{Provider: "claude", Patterns: []string{"claude-opus-4-5", "opus-4-5"}, Input: 5, Output: 25, Cached: tokenPrice(0.5)},
-	{Provider: "claude", Patterns: []string{"claude-opus-4-1", "opus-4-1"}, Input: 15, Output: 75, Cached: tokenPrice(1.5)},
-	{Provider: "claude", Patterns: []string{"claude-opus-4", "opus-4", "claude-opus", "opus"}, Input: 15, Output: 75, Cached: tokenPrice(1.5)},
-	{Provider: "claude", Patterns: []string{"claude-sonnet-4-6", "sonnet-4-6"}, Input: 3, Output: 15, Cached: tokenPrice(0.3)},
-	{Provider: "claude", Patterns: []string{"claude-sonnet-4-5", "sonnet-4-5"}, Input: 3, Output: 15, Cached: tokenPrice(0.3)},
-	{Provider: "claude", Patterns: []string{"claude-sonnet-4", "sonnet-4", "claude-sonnet", "sonnet"}, Input: 3, Output: 15, Cached: tokenPrice(0.3)},
-	{Provider: "claude", Patterns: []string{"claude-haiku-4-5", "haiku-4-5"}, Input: 1, Output: 5, Cached: tokenPrice(0.1)},
-	{Provider: "claude", Patterns: []string{"claude-haiku-3-5", "haiku-3-5"}, Input: 0.8, Output: 4, Cached: tokenPrice(0.08)},
-	{Provider: "claude", Patterns: []string{"claude-haiku", "haiku"}, Input: 1, Output: 5, Cached: tokenPrice(0.1)},
+	{Provider: "claude", Patterns: []string{"claude-opus-4-8", "opus-4-8"}, Input: 5, Output: 25, Cached: tokenPrice(0.5), CacheCreation: tokenPrice(10)},
+	{Provider: "claude", Patterns: []string{"claude-opus-4-7", "opus-4-7"}, Input: 5, Output: 25, Cached: tokenPrice(0.5), CacheCreation: tokenPrice(10)},
+	{Provider: "claude", Patterns: []string{"claude-opus-4-6", "opus-4-6"}, Input: 5, Output: 25, Cached: tokenPrice(0.5), CacheCreation: tokenPrice(10)},
+	{Provider: "claude", Patterns: []string{"claude-opus-4-5", "opus-4-5"}, Input: 5, Output: 25, Cached: tokenPrice(0.5), CacheCreation: tokenPrice(10)},
+	{Provider: "claude", Patterns: []string{"claude-opus-4-1", "opus-4-1"}, Input: 15, Output: 75, Cached: tokenPrice(1.5), CacheCreation: tokenPrice(30)},
+	{Provider: "claude", Patterns: []string{"claude-opus-4", "opus-4", "claude-opus", "opus"}, Input: 15, Output: 75, Cached: tokenPrice(1.5), CacheCreation: tokenPrice(30)},
+	{Provider: "claude", Patterns: []string{"claude-sonnet-4-6", "sonnet-4-6"}, Input: 3, Output: 15, Cached: tokenPrice(0.3), CacheCreation: tokenPrice(6)},
+	{Provider: "claude", Patterns: []string{"claude-sonnet-4-5", "sonnet-4-5"}, Input: 3, Output: 15, Cached: tokenPrice(0.3), CacheCreation: tokenPrice(6)},
+	{Provider: "claude", Patterns: []string{"claude-sonnet-4", "sonnet-4", "claude-sonnet", "sonnet"}, Input: 3, Output: 15, Cached: tokenPrice(0.3), CacheCreation: tokenPrice(6)},
+	{Provider: "claude", Patterns: []string{"claude-haiku-4-5", "haiku-4-5"}, Input: 1, Output: 5, Cached: tokenPrice(0.1), CacheCreation: tokenPrice(2)},
+	{Provider: "claude", Patterns: []string{"claude-haiku-3-5", "haiku-3-5"}, Input: 0.8, Output: 4, Cached: tokenPrice(0.08), CacheCreation: tokenPrice(1.6)},
+	{Provider: "claude", Patterns: []string{"claude-haiku", "haiku"}, Input: 1, Output: 5, Cached: tokenPrice(0.1), CacheCreation: tokenPrice(2)},
 	{Provider: "codex", Patterns: []string{"gpt-5.5-pro"}, Input: 30, Output: 180},
 	{Provider: "openai", Patterns: []string{"gpt-5.5-pro"}, Input: 30, Output: 180},
 	{Provider: "codex", Patterns: []string{"gpt-5.5"}, Input: 5, Output: 30, Cached: tokenPrice(0.5)},
 	{Provider: "openai", Patterns: []string{"gpt-5.5"}, Input: 5, Output: 30, Cached: tokenPrice(0.5)},
+	{Provider: "codex", Patterns: []string{"codex-auto-review", "gpt-5.3-codex"}, Input: 1.75, Output: 14, Cached: tokenPrice(0.175)},
+	{Provider: "openai", Patterns: []string{"gpt-5.3-codex"}, Input: 1.75, Output: 14, Cached: tokenPrice(0.175)},
+	{Provider: "codex", Patterns: []string{"gpt-image-2"}, Input: 5, Output: 30, Cached: tokenPrice(1.25)},
+	{Provider: "openai", Patterns: []string{"gpt-image-2"}, Input: 5, Output: 30, Cached: tokenPrice(1.25)},
 	{Provider: "codex", Patterns: []string{"gpt-5.4-pro"}, Input: 30, Output: 180},
 	{Provider: "openai", Patterns: []string{"gpt-5.4-pro"}, Input: 30, Output: 180},
 	{Provider: "codex", Patterns: []string{"gpt-5.4-mini"}, Input: 0.75, Output: 4.5, Cached: tokenPrice(0.075)},
@@ -159,6 +164,11 @@ func officialTokenPriceUSD(provider, model, tokenType string) (float64, bool) {
 						return 0, false
 					}
 					return *rule.Cached, true
+				case "cache_creation_input":
+					if rule.CacheCreation == nil {
+						return 0, false
+					}
+					return *rule.CacheCreation, true
 				}
 			}
 		}
@@ -203,12 +213,14 @@ func (s *Store) usedTokenDimensions(fromTS, toTS int64) ([]TokenDimension, error
 	dims := map[TokenDimension]struct{}{}
 	queries := []string{
 		`SELECT provider, auth_id, model,
-		        COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COALESCE(SUM(cached_tokens), 0)
+		        COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
+		        COALESCE(SUM(cached_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0)
 		 FROM query_logs
 		 WHERE ts >= ? AND ts < ? AND provider <> '' AND model <> ''
 		 GROUP BY provider, auth_id, model`,
 		`SELECT provider, auth_id, model,
-		        COALESCE(SUM(input_tokens_sum), 0), COALESCE(SUM(output_tokens_sum), 0), COALESCE(SUM(cached_tokens_sum), 0)
+		        COALESCE(SUM(input_tokens_sum), 0), COALESCE(SUM(output_tokens_sum), 0),
+		        COALESCE(SUM(cached_tokens_sum), 0), COALESCE(SUM(cache_creation_tokens_sum), 0)
 		 FROM hourly_aggregates
 		 WHERE hour_ts >= ? AND hour_ts < ? AND provider <> '' AND model <> ''
 		 GROUP BY provider, auth_id, model`,
@@ -220,8 +232,8 @@ func (s *Store) usedTokenDimensions(fromTS, toTS int64) ([]TokenDimension, error
 		}
 		for rows.Next() {
 			var provider, authID, model string
-			var input, output, cached int64
-			if err := rows.Scan(&provider, &authID, &model, &input, &output, &cached); err != nil {
+			var input, output, cached, cacheCreation int64
+			if err := rows.Scan(&provider, &authID, &model, &input, &output, &cached, &cacheCreation); err != nil {
 				_ = rows.Close()
 				return nil, err
 			}
@@ -233,6 +245,9 @@ func (s *Store) usedTokenDimensions(fromTS, toTS int64) ([]TokenDimension, error
 			}
 			if cached > 0 {
 				dims[TokenDimension{Provider: provider, AuthID: authID, Model: model, TokenType: "cached_input"}] = struct{}{}
+			}
+			if cacheCreation > 0 {
+				dims[TokenDimension{Provider: provider, AuthID: authID, Model: model, TokenType: "cache_creation_input"}] = struct{}{}
 			}
 		}
 		if err := rows.Err(); err != nil {
@@ -693,7 +708,8 @@ func (s *Store) hourlyEstimateUSDByAuthBucket(fromTS, toTS, displayBucketSeconds
 func (s *Store) queryLogBucketUSD(fromTS, toTS, bucketSeconds int64) (map[quotaSeriesKey]map[int64]float64, error) {
 	rows, err := s.db.Query(`
 		SELECT (ts / ?) * ? AS bucket_ts,provider,auth_id,model,
-		       SUM(input_tokens),SUM(output_tokens),SUM(cached_tokens)
+		       SUM(input_tokens),SUM(output_tokens),SUM(cached_tokens),
+		       SUM(reasoning_tokens),SUM(cache_read_tokens),SUM(cache_creation_tokens)
 		FROM query_logs
 		WHERE ts >= ? AND ts < ?
 		GROUP BY bucket_ts,provider,auth_id,model`, bucketSeconds, bucketSeconds, fromTS, toTS)
@@ -707,7 +723,8 @@ func (s *Store) queryLogBucketUSD(fromTS, toTS, bucketSeconds int64) (map[quotaS
 func (s *Store) hourlyBucketUSD(fromTS, toTS, bucketSeconds int64) (map[quotaSeriesKey]map[int64]float64, error) {
 	rows, err := s.db.Query(`
 		SELECT (hour_ts / ?) * ? AS bucket_ts,provider,auth_id,model,
-		       SUM(input_tokens_sum),SUM(output_tokens_sum),SUM(cached_tokens_sum)
+		       SUM(input_tokens_sum),SUM(output_tokens_sum),SUM(cached_tokens_sum),
+		       SUM(reasoning_tokens_sum),SUM(cache_read_tokens_sum),SUM(cache_creation_tokens_sum)
 		FROM hourly_aggregates
 		WHERE hour_ts >= ? AND hour_ts < ?
 		GROUP BY bucket_ts,provider,auth_id,model`, bucketSeconds, bucketSeconds, fromTS, toTS)
@@ -724,11 +741,11 @@ func scanUSDRows(rows *sql.Rows) (map[quotaSeriesKey]map[int64]float64, error) {
 		var bucket int64
 		var key quotaSeriesKey
 		var model string
-		var input, output, cached int64
-		if err := rows.Scan(&bucket, &key.provider, &key.authID, &model, &input, &output, &cached); err != nil {
+		var input, output, cached, reasoning, cacheRead, cacheCreation int64
+		if err := rows.Scan(&bucket, &key.provider, &key.authID, &model, &input, &output, &cached, &reasoning, &cacheRead, &cacheCreation); err != nil {
 			return nil, err
 		}
-		usd := tokenCostUSD(key.provider, model, input, output, cached)
+		usd := tokenCostUSD(key.provider, model, input, output, cached, reasoning, cacheRead, cacheCreation)
 		if out[key] == nil {
 			out[key] = map[int64]float64{}
 		}
@@ -737,10 +754,80 @@ func scanUSDRows(rows *sql.Rows) (map[quotaSeriesKey]map[int64]float64, error) {
 	return out, rows.Err()
 }
 
-func tokenCostUSD(provider, model string, input, output, cached int64) float64 {
+// tokenCostUSD computes the official-price USD cost for one bucket of token usage.
+//
+// Each provider's upstream usage schema decomposes tokens differently, so we
+// dispatch by provider style:
+//
+//   - Anthropic (Claude): input_tokens / cache_read / cache_creation are
+//     mutually exclusive categories. Output already excludes any reasoning
+//     surfaced through this API, so we just bill the four buckets directly
+//     with their own per-million prices.
+//   - OpenAI (Codex, OpenAI): prompt_tokens INCLUDES cached_tokens and
+//     completion_tokens INCLUDES reasoning_tokens. To avoid double-counting
+//     cached tokens we subtract them from input before applying the input
+//     price; reasoning is already billed at the output rate via output_tokens.
+//   - Gemini (gemini, gemini-cli, vertex, antigravity, aistudio):
+//     promptTokenCount INCLUDES cachedContentTokenCount but candidatesTokenCount
+//     EXCLUDES thoughtsTokenCount. Subtract cached from input, and bill
+//     reasoning tokens separately at the output rate, matching Google's billing.
+//
+// Negative differences (e.g. cached > input from a malformed upstream record)
+// are clamped to zero rather than producing negative USD.
+func tokenCostUSD(provider, model string, input, output, cached, reasoning, cacheRead, cacheCreation int64) float64 {
+	switch costStyleForProvider(provider) {
+	case costStyleAnthropic:
+		return anthropicTokenCostUSD(provider, model, input, output, cacheRead, cacheCreation)
+	case costStyleGemini:
+		return geminiTokenCostUSD(provider, model, input, output, cached, reasoning)
+	default:
+		return openAITokenCostUSD(provider, model, input, output, cached)
+	}
+}
+
+type providerCostStyle int
+
+const (
+	costStyleOpenAI providerCostStyle = iota
+	costStyleAnthropic
+	costStyleGemini
+)
+
+func costStyleForProvider(provider string) providerCostStyle {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "claude":
+		return costStyleAnthropic
+	case "gemini", "gemini-cli", "vertex", "antigravity", "aistudio":
+		return costStyleGemini
+	default:
+		return costStyleOpenAI
+	}
+}
+
+func anthropicTokenCostUSD(provider, model string, input, output, cacheRead, cacheCreation int64) float64 {
 	var total float64
 	if price, ok := officialTokenPriceUSD(provider, model, "input"); ok {
-		total += float64(input) / tokenMillion * price
+		total += float64(clampNonNegative(input)) / tokenMillion * price
+	}
+	if price, ok := officialTokenPriceUSD(provider, model, "output"); ok {
+		total += float64(clampNonNegative(output)) / tokenMillion * price
+	}
+	if price, ok := officialTokenPriceUSD(provider, model, "cached_input"); ok {
+		total += float64(clampNonNegative(cacheRead)) / tokenMillion * price
+	}
+	if price, ok := officialTokenPriceUSD(provider, model, "cache_creation_input"); ok {
+		total += float64(clampNonNegative(cacheCreation)) / tokenMillion * price
+	}
+	return total
+}
+
+func openAITokenCostUSD(provider, model string, input, output, cached int64) float64 {
+	uncached := clampNonNegative(input - cached)
+	cached = clampNonNegative(cached)
+	output = clampNonNegative(output)
+	var total float64
+	if price, ok := officialTokenPriceUSD(provider, model, "input"); ok {
+		total += float64(uncached) / tokenMillion * price
 	}
 	if price, ok := officialTokenPriceUSD(provider, model, "output"); ok {
 		total += float64(output) / tokenMillion * price
@@ -749,6 +836,31 @@ func tokenCostUSD(provider, model string, input, output, cached int64) float64 {
 		total += float64(cached) / tokenMillion * price
 	}
 	return total
+}
+
+func geminiTokenCostUSD(provider, model string, input, output, cached, reasoning int64) float64 {
+	uncached := clampNonNegative(input - cached)
+	cached = clampNonNegative(cached)
+	output = clampNonNegative(output)
+	reasoning = clampNonNegative(reasoning)
+	var total float64
+	if price, ok := officialTokenPriceUSD(provider, model, "input"); ok {
+		total += float64(uncached) / tokenMillion * price
+	}
+	if price, ok := officialTokenPriceUSD(provider, model, "output"); ok {
+		total += float64(output+reasoning) / tokenMillion * price
+	}
+	if price, ok := officialTokenPriceUSD(provider, model, "cached_input"); ok {
+		total += float64(cached) / tokenMillion * price
+	}
+	return total
+}
+
+func clampNonNegative(v int64) int64 {
+	if v < 0 {
+		return 0
+	}
+	return v
 }
 
 func (s *Store) maxOfficialPriceByAuth(fromTS, toTS int64) (map[quotaSeriesKey]float64, error) {

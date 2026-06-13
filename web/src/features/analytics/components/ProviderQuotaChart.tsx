@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { CartesianGrid, ComposedChart, Legend, Line, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { CartesianGrid, ComposedChart, Legend, Line, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { ProviderQuotaSeries } from '@/services/api';
 import { COLORS } from '../constants';
 import { formatNumber, formatPercent, formatTimestamp, formatUSD } from '../formatters';
@@ -32,6 +32,7 @@ export function ProviderQuotaChart(props: {
     ? (props.series.reset_markers || []).map((point) => ({ x_ts: point.reset_at, resetDot: point.points }))
     : [];
   const maxCumulativeUSD = data.reduce((max, point) => Math.max(max, point.cliproxy_cumulative_usd ?? 0), 0);
+  const maxQuotaUsedPercent = data.reduce((max, point) => Math.max(max, point.quota_used_percent ?? 0), 0);
   const estimatedPointUSDValues = data
     .map((point) => point.estimated_quota_usd_point)
     .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
@@ -56,7 +57,8 @@ export function ProviderQuotaChart(props: {
   const estimatedQuotaInputMTokens =
     inputUSDPerMillion > 0 && estimatedQuotaUSD > 0 ? estimatedQuotaUSD / inputUSDPerMillion : 0;
   const visualQuotaUSD = medianEstimatedPointUSD > 0 ? medianEstimatedPointUSD : estimatedQuotaUSD;
-  const usdAxisMax = Math.max(visualQuotaUSD, maxCumulativeUSD * 1.05, 0.01);
+  const usdAxisMax = Math.max(maxCumulativeUSD, 0.01);
+  const percentAxisMax = visualQuotaUSD > 0 ? Math.max((usdAxisMax / visualQuotaUSD) * 100, maxQuotaUsedPercent, 100) : Math.max(maxQuotaUsedPercent, 100);
 
   return (
     <div className={styles.providerCard}>
@@ -100,8 +102,8 @@ export function ProviderQuotaChart(props: {
               fontSize={11}
               tickFormatter={(value) => formatTimestamp(Number(value), props.displayWindow)}
             />
-            <YAxis yAxisId="usd" domain={[0, usdAxisMax]} stroke={COLORS.cumulative} fontSize={11} tickFormatter={(value) => formatUSD(Number(value))} />
-            <YAxis yAxisId="percent" orientation="right" domain={[0, 100]} stroke={COLORS.quota} fontSize={11} tickFormatter={(value) => formatPercent(Number(value))} />
+            <YAxis yAxisId="usd" domain={[0, usdAxisMax]} allowDataOverflow stroke={COLORS.cumulative} fontSize={11} tickFormatter={(value) => formatUSD(Number(value))} />
+            <YAxis yAxisId="percent" orientation="right" domain={[0, percentAxisMax]} allowDataOverflow stroke={COLORS.quota} fontSize={11} tickFormatter={(value) => formatPercent(Number(value))} />
             <Tooltip
               shared
               cursor={{ stroke: COLORS.axis, strokeDasharray: '3 3' }}
@@ -118,6 +120,7 @@ export function ProviderQuotaChart(props: {
               }
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
+            <ReferenceLine yAxisId="percent" y={100} stroke={COLORS.quota} strokeDasharray="4 4" ifOverflow="extendDomain" />
             {props.seriesVisibility.quotaUsed && (
               <Line yAxisId="percent" type="monotone" dataKey="quota_used_percent" name={t('analytics.quota_lines.quota_used')} stroke={COLORS.quota} dot={false} activeDot={{ r: 3 }} strokeWidth={2} />
             )}
